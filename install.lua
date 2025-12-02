@@ -2,17 +2,1134 @@
 print('Installing TurtleOS...')
 
 local files = {
-    ["boot.lua"] = "-- boot.lua\r\n-- This file should be renamed to startup.lua on the turtle or called by it.\r\n\r\n-- Add the root directory to the package path so we can require files relative to root\r\npackage.path = \"/?.lua;/?/init.lua;\" .. package.path\r\n\r\n-- Load APIs\r\nif fs.exists(\"turtleos/apis/movement.lua\") then\r\n    os.loadAPI(\"turtleos/apis/movement.lua\")\r\nend\r\n\r\nlocal core = require(\"turtleos.lib.core\")\r\n\r\nprint(\"Booting TurtleOS...\")\r\ncore.init()\r\n",
-    ["turtleos/apis/movement.lua"] = "-- turtleos/apis/movement.lua\r\n-- Movement State Machine API for ComputerCraft Turtles\r\n-- Load with: os.loadAPI(\"turtleos/apis/movement.lua\")\r\n-- Access via: movement.forward(), movement.getPosition(), etc.\r\n\r\n-- State tracking\r\nlocal position = {x = 0, y = 0, z = 0}\r\nlocal facing = 0  -- 0=North(+Z), 1=East(+X), 2=South(-Z), 3=West(-X)\r\nlocal moveAttempts = 3\r\nlocal fuelThreshold = 100\r\n\r\n-- Movement states\r\nlocal STATE = {\r\n    IDLE = \"idle\",\r\n    MOVING = \"moving\",\r\n    BLOCKED = \"blocked\",\r\n    ATTACKING = \"attacking\",\r\n    LOW_FUEL = \"low_fuel\"\r\n}\r\n\r\nlocal currentState = STATE.IDLE\r\n\r\n-- Direction vectors for each facing\r\nlocal DIRECTIONS = {\r\n    [0] = {x = 0, z = 1},   -- North\r\n    [1] = {x = 1, z = 0},   -- East\r\n    [2] = {x = 0, z = -1},  -- South\r\n    [3] = {x = -1, z = 0}   -- West\r\n}\r\n\r\n-- Get current position\r\nfunction getPosition()\r\n    return {x = position.x, y = position.y, z = position.z}\r\nend\r\n\r\n-- Get current facing direction\r\nfunction getFacing()\r\n    return facing\r\nend\r\n\r\n-- Get current state\r\nfunction getState()\r\n    return currentState\r\nend\r\n\r\n-- Set position (useful for calibration)\r\nfunction setPosition(x, y, z)\r\n    position.x = x or position.x\r\n    position.y = y or position.y\r\n    position.z = z or position.z\r\nend\r\n\r\n-- Set facing direction\r\nfunction setFacing(dir)\r\n    facing = dir % 4\r\nend\r\n\r\n-- Check fuel level\r\nfunction checkFuel()\r\n    local level = turtle.getFuelLevel()\r\n    if level == \"unlimited\" then\r\n        return true\r\n    end\r\n    \r\n    while level < fuelThreshold do\r\n        currentState = STATE.LOW_FUEL\r\n        \r\n        -- Try to refuel from all slots\r\n        for i = 1, 16 do\r\n            turtle.select(i)\r\n            if turtle.refuel(0) then\r\n                turtle.refuel()\r\n            end\r\n        end\r\n        \r\n        level = turtle.getFuelLevel()\r\n        if level >= fuelThreshold then\r\n            break\r\n        end\r\n        \r\n        print(\"Fuel low (\" .. level .. \"/\" .. fuelThreshold .. \"). Waiting for assistance.\")\r\n        print(\"Press any key to retry...\")\r\n        os.pullEvent(\"key\")\r\n    end\r\n    \r\n    if currentState == STATE.LOW_FUEL then\r\n        currentState = STATE.IDLE\r\n    end\r\n    return true\r\nend\r\n\r\n-- Try to refuel from inventory\r\nfunction refuel(amount)\r\n    amount = amount or 64\r\n    for slot = 1, 16 do\r\n        if turtle.getItemCount(slot) > 0 then\r\n            turtle.select(slot)\r\n            if turtle.refuel(1) then\r\n                return true\r\n            end\r\n        end\r\n    end\r\n    return false\r\nend\r\n\r\n-- Turn right\r\nfunction turnRight()\r\n    if turtle.turnRight() then\r\n        facing = (facing + 1) % 4\r\n        return true\r\n    end\r\n    return false\r\nend\r\n\r\n-- Turn left\r\nfunction turnLeft()\r\n    if turtle.turnLeft() then\r\n        facing = (facing - 1) % 4\r\n        return true\r\n    end\r\n    return false\r\nend\r\n\r\n-- Turn around\r\nfunction turnAround()\r\n    turnRight()\r\n    turnRight()\r\n    return true\r\nend\r\n\r\n-- Face a specific direction (0-3)\r\nfunction face(dir)\r\n    dir = dir % 4\r\n    while facing ~= dir do\r\n        turnRight()\r\n    end\r\n    return true\r\nend\r\n\r\n-- Forward movement with retry logic\r\nfunction forward(force)\r\n    if not checkFuel() then\r\n        return false, \"low_fuel\"\r\n    end\r\n    \r\n    currentState = STATE.MOVING\r\n    local attempts = 0\r\n    \r\n    while attempts < moveAttempts do\r\n        if turtle.forward() then\r\n            -- Update position\r\n            local dir = DIRECTIONS[facing]\r\n            position.x = position.x + dir.x\r\n            position.z = position.z + dir.z\r\n            currentState = STATE.IDLE\r\n            return true\r\n        end\r\n        \r\n        attempts = attempts + 1\r\n        \r\n        if force and attempts < moveAttempts then\r\n            -- Try to clear the way\r\n            if turtle.detect() then\r\n                currentState = STATE.BLOCKED\r\n                turtle.dig()\r\n                sleep(0.5)\r\n            elseif turtle.attack() then\r\n                currentState = STATE.ATTACKING\r\n                sleep(0.5)\r\n            end\r\n        else\r\n            sleep(0.2)\r\n        end\r\n    end\r\n    \r\n    currentState = STATE.BLOCKED\r\n    return false, \"blocked\"\r\nend\r\n\r\n-- Backward movement\r\nfunction back()\r\n    if not checkFuel() then\r\n        return false, \"low_fuel\"\r\n    end\r\n    \r\n    currentState = STATE.MOVING\r\n    \r\n    if turtle.back() then\r\n        -- Update position (move opposite of facing)\r\n        local dir = DIRECTIONS[facing]\r\n        position.x = position.x - dir.x\r\n        position.z = position.z - dir.z\r\n        currentState = STATE.IDLE\r\n        return true\r\n    end\r\n    \r\n    currentState = STATE.BLOCKED\r\n    return false, \"blocked\"\r\nend\r\n\r\n-- Up movement with retry logic\r\nfunction up(force)\r\n    if not checkFuel() then\r\n        return false, \"low_fuel\"\r\n    end\r\n    \r\n    currentState = STATE.MOVING\r\n    local attempts = 0\r\n    \r\n    while attempts < moveAttempts do\r\n        if turtle.up() then\r\n            position.y = position.y + 1\r\n            currentState = STATE.IDLE\r\n            return true\r\n        end\r\n        \r\n        attempts = attempts + 1\r\n        \r\n        if force and attempts < moveAttempts then\r\n            if turtle.detectUp() then\r\n                currentState = STATE.BLOCKED\r\n                turtle.digUp()\r\n                sleep(0.5)\r\n            elseif turtle.attackUp() then\r\n                currentState = STATE.ATTACKING\r\n                sleep(0.5)\r\n            end\r\n        else\r\n            sleep(0.2)\r\n        end\r\n    end\r\n    \r\n    currentState = STATE.BLOCKED\r\n    return false, \"blocked\"\r\nend\r\n\r\n-- Down movement with retry logic\r\nfunction down(force)\r\n    if not checkFuel() then\r\n        return false, \"low_fuel\"\r\n    end\r\n    \r\n    currentState = STATE.MOVING\r\n    local attempts = 0\r\n    \r\n    while attempts < moveAttempts do\r\n        if turtle.down() then\r\n            position.y = position.y - 1\r\n            currentState = STATE.IDLE\r\n            return true\r\n        end\r\n        \r\n        attempts = attempts + 1\r\n        \r\n        if force and attempts < moveAttempts then\r\n            if turtle.detectDown() then\r\n                currentState = STATE.BLOCKED\r\n                turtle.digDown()\r\n                sleep(0.5)\r\n            elseif turtle.attackDown() then\r\n                currentState = STATE.ATTACKING\r\n                sleep(0.5)\r\n            end\r\n        else\r\n            sleep(0.2)\r\n        end\r\n    end\r\n    \r\n    currentState = STATE.BLOCKED\r\n    return false, \"blocked\"\r\nend\r\n\r\n-- Go to a specific position (simple pathfinding)\r\nfunction gotoPosition(targetX, targetY, targetZ, force)\r\n    force = force or false\r\n    \r\n    -- Move in X axis\r\n    while position.x ~= targetX do\r\n        if position.x < targetX then\r\n            face(1)  -- East\r\n        else\r\n            face(3)  -- West\r\n        end\r\n        \r\n        local success, err = forward(force)\r\n        if not success then\r\n            return false, err\r\n        end\r\n    end\r\n    \r\n    -- Move in Z axis\r\n    while position.z ~= targetZ do\r\n        if position.z < targetZ then\r\n            face(0)  -- North\r\n        else\r\n            face(2)  -- South\r\n        end\r\n        \r\n        local success, err = forward(force)\r\n        if not success then\r\n            return false, err\r\n        end\r\n    end\r\n    \r\n    -- Move in Y axis\r\n    while position.y ~= targetY do\r\n        local success, err\r\n        if position.y < targetY then\r\n            success, err = up(force)\r\n        else\r\n            success, err = down(force)\r\n        end\r\n        \r\n        if not success then\r\n            return false, err\r\n        end\r\n    end\r\n    \r\n    return true\r\nend\r\n\r\n-- Return to origin (0, 0, 0)\r\nfunction home(force)\r\n    return gotoPosition(0, 0, 0, force)\r\nend\r\n\r\n-- Get distance to a position\r\nfunction distanceTo(x, y, z)\r\n    local dx = math.abs(position.x - x)\r\n    local dy = math.abs(position.y - y)\r\n    local dz = math.abs(position.z - z)\r\n    return dx + dy + dz  -- Manhattan distance\r\nend\r\n\r\n-- Configure movement parameters\r\nfunction configure(config)\r\n    if config.moveAttempts then\r\n        moveAttempts = config.moveAttempts\r\n    end\r\n    if config.fuelThreshold then\r\n        fuelThreshold = config.fuelThreshold\r\n    end\r\nend\r\n\r\n-- Reset position and facing\r\nfunction reset()\r\n    position = {x = 0, y = 0, z = 0}\r\n    facing = 0\r\n    currentState = STATE.IDLE\r\nend\r\n\r\n-- Save state to file\r\nfunction saveState(filename)\r\n    filename = filename or \"movement_state.txt\"\r\n    local file = fs.open(filename, \"w\")\r\n    if file then\r\n        file.writeLine(textutils.serialize({\r\n            position = position,\r\n            facing = facing\r\n        }))\r\n        file.close()\r\n        return true\r\n    end\r\n    return false\r\nend\r\n\r\n-- Load state from file\r\nfunction loadState(filename)\r\n    filename = filename or \"movement_state.txt\"\r\n    if fs.exists(filename) then\r\n        local file = fs.open(filename, \"r\")\r\n        if file then\r\n            local data = textutils.unserialize(file.readAll())\r\n            file.close()\r\n            if data then\r\n                position = data.position or {x = 0, y = 0, z = 0}\r\n                facing = data.facing or 0\r\n                return true\r\n            end\r\n        end\r\n    end\r\n    return false\r\nend\r\n",
-    ["turtleos/apis/README.md"] = "# TurtleOS APIs\r\n\r\nThis directory contains ComputerCraft API modules for TurtleOS.\r\n\r\n## Movement API\r\n\r\nA state machine-based movement system for tracking turtle position, orientation, and handling intelligent movement with retry logic.\r\n\r\n### Loading the API\r\n\r\n```lua\r\nos.loadAPI(\"turtleos/apis/movement.lua\")\r\n```\r\n\r\n### Usage Examples\r\n\r\n```lua\r\n-- Basic movement\r\nmovement.forward(true)  -- Move forward, force through obstacles\r\nmovement.up(false)      -- Move up without forcing\r\nmovement.turnRight()\r\nmovement.turnLeft()\r\n\r\n-- Position tracking\r\nlocal pos = movement.getPosition()\r\nprint(\"Position:\", pos.x, pos.y, pos.z)\r\nprint(\"Facing:\", movement.getFacing())  -- 0=North, 1=East, 2=South, 3=West\r\n\r\n-- Pathfinding\r\nmovement.gotoPosition(10, 5, -3, true)  -- Go to coordinates (10, 5, -3)\r\nmovement.home(true)                      -- Return to origin (0, 0, 0)\r\n\r\n-- State management\r\nprint(\"Current state:\", movement.getState())\r\nmovement.saveState(\"my_position.txt\")\r\nmovement.loadState(\"my_position.txt\")\r\n\r\n-- Configuration\r\nmovement.configure({\r\n    moveAttempts = 5,      -- Retry failed movements 5 times\r\n    fuelThreshold = 200    -- Warn when fuel < 200\r\n})\r\n\r\n-- Fuel management\r\nif not movement.checkFuel() then\r\n    movement.refuel(64)\r\nend\r\n\r\n-- Utility\r\nlocal distance = movement.distanceTo(10, 5, -3)\r\nprint(\"Distance to target:\", distance)\r\n```\r\n\r\n### API Functions\r\n\r\n#### Movement\r\n- `forward(force)` - Move forward, optionally breaking blocks\r\n- `back()` - Move backward\r\n- `up(force)` - Move up, optionally breaking blocks\r\n- `down(force)` - Move down, optionally breaking blocks\r\n- `turnRight()` - Turn 90° clockwise\r\n- `turnLeft()` - Turn 90° counter-clockwise\r\n- `turnAround()` - Turn 180°\r\n- `face(direction)` - Face a specific direction (0-3)\r\n\r\n#### Navigation\r\n- `gotoPosition(x, y, z, force)` - Navigate to coordinates\r\n- `home(force)` - Return to origin (0, 0, 0)\r\n- `distanceTo(x, y, z)` - Calculate Manhattan distance\r\n\r\n#### State Management\r\n- `getPosition()` - Get current {x, y, z} coordinates\r\n- `getFacing()` - Get current facing direction (0-3)\r\n- `getState()` - Get current state (idle, moving, blocked, etc.)\r\n- `setPosition(x, y, z)` - Manually set position\r\n- `setFacing(direction)` - Manually set facing\r\n- `reset()` - Reset to origin\r\n\r\n#### Fuel\r\n- `checkFuel()` - Check if fuel is above threshold\r\n- `refuel(amount)` - Attempt to refuel from inventory\r\n\r\n#### Configuration\r\n- `configure(config)` - Set moveAttempts and fuelThreshold\r\n- `saveState(filename)` - Save position/facing to file\r\n- `loadState(filename)` - Load position/facing from file\r\n\r\n### States\r\n\r\nThe movement API tracks these states:\r\n- `idle` - Not currently moving\r\n- `moving` - In motion\r\n- `blocked` - Path is blocked\r\n- `attacking` - Clearing hostile mobs\r\n- `low_fuel` - Fuel below threshold\r\n",
-    ["turtleos/lib/core.lua"] = "-- turtleos/lib/core.lua\r\nlocal schema = require(\"turtleos.lib.schema\")\r\nlocal logger = require(\"turtleos.lib.logger\")\r\n\r\nlocal core = {}\r\n\r\nlocal function checkAndRefuel()\r\n    if not turtle then\r\n        logger.warn(\"Not running on a turtle, skipping fuel check.\")\r\n        return\r\n    end\r\n\r\n    local MIN_FUEL = 100\r\n\r\n    while true do\r\n        logger.info(\"Checking fuel levels...\")\r\n        local level = turtle.getFuelLevel()\r\n        if level == \"unlimited\" then\r\n            logger.info(\"Fuel level: Unlimited\")\r\n            return\r\n        end\r\n\r\n        logger.info(\"Current Fuel: \" .. level)\r\n\r\n        for i = 1, 16 do\r\n            turtle.select(i)\r\n            if turtle.refuel(0) then\r\n                turtle.refuel()\r\n                logger.info(\"Refueled from slot \" .. i)\r\n            end\r\n        end\r\n        \r\n        level = turtle.getFuelLevel()\r\n        logger.info(\"New Fuel Level: \" .. level)\r\n\r\n        if level >= MIN_FUEL then\r\n            break\r\n        end\r\n\r\n        logger.warn(\"Fuel low (\" .. level .. \"/\" .. MIN_FUEL .. \"). Waiting for assistance.\")\r\n        print(\"Press any key to retry...\")\r\n        os.pullEvent(\"key\")\r\n    end\r\nend\r\n\r\nfunction core.init()\r\n    logger.info(\"TurtleOS initializing...\")\r\n    \r\n    checkAndRefuel()\r\n    \r\n    -- Load schema\r\n    local schemaData, err = schema.load(\"turtle_schema.json\")\r\n    if not schemaData then\r\n        if err and string.find(err, \"Schema file not found\") then\r\n            logger.warn(\"Schema not found. Creating default configuration...\")\r\n            local defaultSchema = {\r\n                name = \"Default Farmer\",\r\n                version = \"1.0.0\",\r\n                role = \"farmer\",\r\n                strategy = \"potato\"\r\n            }\r\n            local file = fs.open(\"turtle_schema.json\", \"w\")\r\n            file.write(textutils.serializeJSON(defaultSchema))\r\n            file.close()\r\n            \r\n            -- Retry load\r\n            schemaData, err = schema.load(\"turtle_schema.json\")\r\n        end\r\n\r\n        if not schemaData then\r\n            logger.error(\"Failed to load schema: \" .. (err or \"unknown error\"))\r\n            return false\r\n        end\r\n    end\r\n\r\n    logger.info(\"Loaded schema for: \" .. (schemaData.name or \"Unknown Turtle\"))\r\n\r\n    -- Interactive Configuration\r\n    if schemaData.role == \"farmer\" then\r\n        print(\"Press 'c' to configure strategy (3s)...\")\r\n        local timerId = os.startTimer(3)\r\n        local shouldEdit = false\r\n        while true do\r\n            local event, p1 = os.pullEvent()\r\n            if event == \"timer\" and p1 == timerId then\r\n                break\r\n            elseif event == \"char\" and p1 == \"c\" then\r\n                shouldEdit = true\r\n                break\r\n            end\r\n        end\r\n\r\n        if shouldEdit then\r\n            print(\"Select Farm Type:\")\r\n            print(\"1. Potato\")\r\n            print(\"2. Tree\")\r\n            write(\"> \")\r\n            local input = read()\r\n            if input == \"1\" then\r\n                schemaData.strategy = \"potato\"\r\n                print(\"Strategy set to: potato\")\r\n            elseif input == \"2\" then\r\n                schemaData.strategy = \"tree\"\r\n                print(\"Strategy set to: tree\")\r\n            end\r\n            \r\n            -- Save changes\r\n            local file = fs.open(\"turtle_schema.json\", \"w\")\r\n            file.write(textutils.serializeJSON(schemaData))\r\n            file.close()\r\n        end\r\n    end\r\n\r\n    -- Determine role\r\n    local role = schemaData.role\r\n    if not role then\r\n        logger.error(\"No role defined in schema\")\r\n        return false\r\n    end\r\n\r\n    logger.info(\"Role: \" .. role)\r\n\r\n    -- Load role module\r\n    local rolePath = \"turtleos.roles.\" .. role\r\n    local success, roleModule = pcall(require, rolePath)\r\n    \r\n    if not success then\r\n        logger.error(\"Failed to load role module: \" .. rolePath)\r\n        logger.error(roleModule) -- Error message\r\n        return false\r\n    end\r\n\r\n    -- Execute role\r\n    if roleModule.run then\r\n        roleModule.run(schemaData)\r\n    else\r\n        logger.error(\"Role module missing 'run' function\")\r\n        return false\r\n    end\r\n\r\n    return true\r\nend\r\n\r\nreturn core\r\n",
-    ["turtleos/lib/logger.lua"] = "-- turtleos/lib/logger.lua\r\n\r\nlocal logger = {}\r\n\r\nfunction logger.log(message)\r\n    print(\"[LOG] \" .. message)\r\n    -- In a real implementation, we might write to a file\r\nend\r\n\r\nfunction logger.error(message)\r\n    printError(\"[ERROR] \" .. message)\r\nend\r\n\r\nfunction logger.warn(message)\r\n    print(\"[WARN] \" .. message)\r\nend\r\n\r\nfunction logger.info(message)\r\n    print(\"[INFO] \" .. message)\r\nend\r\n\r\nreturn logger\r\n",
-    ["turtleos/lib/schema.lua"] = "-- turtleos/lib/schema.lua\r\n\r\nlocal schema = {}\r\n\r\nfunction schema.load(path)\r\n    if not fs.exists(path) then\r\n        return nil, \"Schema file not found: \" .. path\r\n    end\r\n\r\n    local file = fs.open(path, \"r\")\r\n    local content = file.readAll()\r\n    file.close()\r\n\r\n    local data = textutils.unserializeJSON(content)\r\n    if not data then\r\n        return nil, \"Failed to parse schema JSON\"\r\n    end\r\n\r\n    return data\r\nend\r\n\r\nreturn schema\r\n",
-    ["turtleos/roles/builder.lua"] = "-- turtleos/roles/builder.lua\r\nlocal logger = require(\"turtleos.lib.logger\")\r\n\r\nlocal builder = {}\r\n\r\nfunction builder.run(schema)\r\n    logger.info(\"Starting Builder Role...\")\r\n    -- Builder logic here\r\n    -- Might load a blueprint from schema\r\nend\r\n\r\nreturn builder\r\n",
-    ["turtleos/roles/farmer.lua"] = "-- turtleos/roles/farmer.lua\r\nlocal logger = require(\"turtleos.lib.logger\")\r\n\r\nlocal farmer = {}\r\n\r\nfunction farmer.run(schema)\r\n    logger.info(\"Starting Farmer Role...\")\r\n    \r\n    local strategyName = schema.strategy\r\n    if not strategyName then\r\n        logger.error(\"No strategy defined for Farmer\")\r\n        return\r\n    end\r\n\r\n    local strategyPath = \"turtleos.strategies.farmer.\" .. strategyName\r\n    local success, strategy = pcall(require, strategyPath)\r\n\r\n    if not success then\r\n        logger.error(\"Failed to load strategy: \" .. strategyPath)\r\n        logger.error(strategy)\r\n        return\r\n    end\r\n\r\n    logger.info(\"Executing strategy: \" .. strategyName)\r\n    \r\n    while true do\r\n        if strategy.execute then\r\n            strategy.execute()\r\n        else\r\n            logger.error(\"Strategy missing 'execute' function\")\r\n            break\r\n        end\r\n        sleep(1) -- Prevent infinite loop crash if strategy is instant\r\n    end\r\nend\r\n\r\nreturn farmer\r\n",
-    ["turtleos/roles/miner.lua"] = "-- turtleos/roles/miner.lua\r\nlocal logger = require(\"turtleos.lib.logger\")\r\n\r\nlocal miner = {}\r\n\r\nfunction miner.run(schema)\r\n    logger.info(\"Starting Miner Role...\")\r\n    -- Miner logic here\r\nend\r\n\r\nreturn miner\r\n",
-    ["turtleos/strategies/farmer/potato.lua"] = "-- turtleos/strategies/farmer/potato.lua\r\nlocal logger = require(\"turtleos.lib.logger\")\r\n\r\n-- Ensure movement API is loaded\r\nif not movement then\r\n    os.loadAPI(\"turtleos/apis/movement.lua\")\r\nend\r\n\r\nlocal potato = {}\r\nlocal initialized = false\r\n\r\nlocal function selectItem(name)\r\n    for i = 1, 16 do\r\n        local item = turtle.getItemDetail(i)\r\n        if item and item.name == name then\r\n            turtle.select(i)\r\n            return true\r\n        end\r\n    end\r\n    return false\r\nend\r\n\r\nlocal function hasSpace()\r\n    for i = 1, 16 do\r\n        if turtle.getItemCount(i) == 0 then return true end\r\n        local item = turtle.getItemDetail(i)\r\n        if item and item.name == \"minecraft:potato\" and turtle.getItemSpace(i) > 0 then\r\n            return true\r\n        end\r\n    end\r\n    return false\r\nend\r\n\r\nfunction potato.execute()\r\n    -- 1. Initialization: Move to start offset (1, 1)\r\n    if not initialized then\r\n        logger.info(\"Initializing Farmer Strategy v2.1...\")\r\n        \r\n        -- Ensure we are hovering (Y=1) to avoid breaking crops or getting blocked\r\n        if movement.getPosition().y < 1 then\r\n             logger.info(\"Moving to hover height...\")\r\n             if not movement.up() then\r\n                 logger.error(\"Failed to move up!\")\r\n                 return\r\n             end\r\n        end\r\n\r\n        -- Move to offset (1, 1) relative to origin\r\n        -- Target: X=1, Z=1, Y=1\r\n        logger.info(\"Moving to start offset (1, 1)...\")\r\n        local success, err = movement.gotoPosition(1, 1, 1)\r\n        if not success then\r\n            logger.error(\"Failed to reach start position: \" .. (err or \"unknown\"))\r\n        else\r\n            logger.info(\"Reached start position.\")\r\n        end\r\n        \r\n        initialized = true\r\n        return\r\n    end\r\n\r\n    logger.info(\"Farming potatoes...\")\r\n\r\n    -- 2. Check fuel\r\n    if turtle.getFuelLevel() < 100 then\r\n        logger.warn(\"Low fuel! Attempting to refuel...\")\r\n        movement.refuel()\r\n    end\r\n\r\n    -- 3. Farm the block below\r\n    local hasCrop, cropData = turtle.inspectDown()\r\n    \r\n    if hasCrop and cropData.name == \"minecraft:potatoes\" then\r\n        if cropData.state.age == 7 then\r\n            if hasSpace() then\r\n                logger.info(\"Harvesting potato below...\")\r\n                \r\n                -- Select potato to ensure drops stack\r\n                selectItem(\"minecraft:potato\")\r\n                \r\n                turtle.digDown()\r\n                turtle.suckDown() -- Collect extra drops\r\n                \r\n                -- Select potato for planting\r\n                if selectItem(\"minecraft:potato\") then\r\n                    turtle.placeDown() -- Replant\r\n                else\r\n                    logger.warn(\"No potatoes to replant!\")\r\n                end\r\n            else\r\n                logger.warn(\"Inventory full! Skipping harvest.\")\r\n            end\r\n        else\r\n            -- logger.info(\"Waiting for potato to grow...\")\r\n        end\r\n    elseif not hasCrop then\r\n        -- Air below (or we just dug it). Plant.\r\n        logger.info(\"Planting potato below...\")\r\n        \r\n        if selectItem(\"minecraft:potato\") then\r\n            if not turtle.placeDown() then\r\n                 logger.warn(\"Failed to plant (Blocked?)\")\r\n            end\r\n        else\r\n            logger.warn(\"No potatoes to plant!\")\r\n        end\r\n    end\r\n\r\n    -- 4. Move forward\r\n    if not movement.forward() then\r\n        logger.warn(\"Movement blocked! Attempting to find path...\")\r\n        \r\n        -- Try turning right until we can move\r\n        for i = 1, 4 do\r\n            movement.turnRight()\r\n            if movement.forward() then\r\n                logger.info(\"Path found.\")\r\n                return\r\n            end\r\n        end\r\n        \r\n        logger.warn(\"Trapped! Could not move in any direction.\")\r\n    end\r\nend\r\n\r\nreturn potato\r\n",
-    ["turtleos/strategies/farmer/tree.lua"] = "-- turtleos/strategies/farmer/tree.lua\r\nlocal logger = require(\"turtleos.lib.logger\")\r\n\r\n-- Load movement API\r\nos.loadAPI(\"turtleos/apis/movement.lua\")\r\n\r\nlocal tree = {}\r\n\r\nfunction tree.execute()\r\n    logger.info(\"Farming trees...\")\r\n    local hasBlock, data = turtle.inspect()\r\n    \r\n    if hasBlock and (data.name == \"minecraft:log\" or data.name == \"minecraft:oak_log\") then\r\n        logger.info(\"Chopping tree...\")\r\n        turtle.dig()\r\n        movement.forward(true)  -- Use movement API with force\r\n        -- Logic to chop up and come down would go here\r\n        movement.back()\r\n    elseif not hasBlock then\r\n        logger.info(\"Planting sapling...\")\r\n        turtle.place()\r\n    end\r\n    \r\n    -- Log current position\r\n    local pos = movement.getPosition()\r\n    logger.info(string.format(\"Position: %d, %d, %d\", pos.x, pos.y, pos.z))\r\nend\r\n\r\nreturn tree\r\n",
+    ["boot.lua"] = [[-- boot.lua
+-- This file should be renamed to startup.lua on the turtle or called by it.
+
+-- Add the root directory to the package path so we can require files relative to root
+package.path = "/?.lua;/?/init.lua;" .. package.path
+
+local core = require("turtleos.lib.core")
+
+print("Booting TurtleOS...")
+core.init()
+]],
+    ["turtleos/apis/movement.lua"] = [[-- turtleos/apis/movement.lua
+-- Movement State Machine API for ComputerCraft Turtles
+-- Access via: local movement = require("turtleos.apis.movement")
+
+local movement = {}
+
+-- State tracking
+local position = {x = 0, y = 0, z = 0}
+local facing = 0  -- 0=North(+Z), 1=East(+X), 2=South(-Z), 3=West(-X)
+local moveAttempts = 3
+local fuelThreshold = 100
+
+-- Movement states
+local STATE = {
+    IDLE = "idle",
+    MOVING = "moving",
+    BLOCKED = "blocked",
+    ATTACKING = "attacking",
+    LOW_FUEL = "low_fuel"
+}
+
+local currentState = STATE.IDLE
+
+-- Direction vectors for each facing
+local DIRECTIONS = {
+    [0] = {x = 0, z = 1},   -- North
+    [1] = {x = 1, z = 0},   -- East
+    [2] = {x = 0, z = -1},  -- South
+    [3] = {x = -1, z = 0}   -- West
+}
+
+-- Get current position
+function movement.getPosition()
+    return {x = position.x, y = position.y, z = position.z}
+end
+
+-- Get current facing direction
+function movement.getFacing()
+    return facing
+end
+
+-- Get current state
+function movement.getState()
+    return currentState
+end
+
+-- Set position (useful for calibration)
+function movement.setPosition(x, y, z)
+    position.x = x or position.x
+    position.y = y or position.y
+    position.z = z or position.z
+end
+
+-- Set facing direction
+function movement.setFacing(dir)
+    facing = dir % 4
+end
+
+-- Check fuel level
+function movement.checkFuel()
+    local level = turtle.getFuelLevel()
+    if level == "unlimited" then
+        return true
+    end
+    
+    while level < fuelThreshold do
+        currentState = STATE.LOW_FUEL
+        
+        -- Try to refuel from all slots
+        for i = 1, 16 do
+            turtle.select(i)
+            if turtle.refuel(0) then
+                turtle.refuel()
+            end
+        end
+        
+        level = turtle.getFuelLevel()
+        if level >= fuelThreshold then
+            break
+        end
+        
+        print("Fuel low (" .. level .. "/" .. fuelThreshold .. "). Waiting for assistance.")
+        print("Press any key to retry...")
+        os.pullEvent("key")
+    end
+    
+    if currentState == STATE.LOW_FUEL then
+        currentState = STATE.IDLE
+    end
+    return true
+end
+
+-- Try to refuel from inventory
+function movement.refuel(amount)
+    amount = amount or 64
+    for slot = 1, 16 do
+        if turtle.getItemCount(slot) > 0 then
+            turtle.select(slot)
+            if turtle.refuel(1) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Turn right
+function movement.turnRight()
+    if turtle.turnRight() then
+        facing = (facing + 1) % 4
+        return true
+    end
+    return false
+end
+
+-- Turn left
+function movement.turnLeft()
+    if turtle.turnLeft() then
+        facing = (facing - 1) % 4
+        return true
+    end
+    return false
+end
+
+-- Turn around
+function movement.turnAround()
+    movement.turnRight()
+    movement.turnRight()
+    return true
+end
+
+-- Face a specific direction (0-3)
+function movement.face(dir)
+    dir = dir % 4
+    while facing ~= dir do
+        movement.turnRight()
+    end
+    return true
+end
+
+-- Forward movement with retry logic
+function movement.forward(force)
+    if not movement.checkFuel() then
+        print("[MOVEMENT] Failed: low fuel")
+        return false, "low_fuel"
+    end
+    
+    currentState = STATE.MOVING
+    local attempts = 0
+    
+    print(string.format("[MOVEMENT] Attempting forward (facing=%d, pos=%d,%d,%d)", facing, position.x, position.y, position.z))
+    
+    while attempts < moveAttempts do
+        local result = turtle.forward()
+        print(string.format("[MOVEMENT] turtle.forward() attempt %d: %s", attempts + 1, tostring(result)))
+        
+        if result then
+            -- Update position
+            local dir = DIRECTIONS[facing]
+            position.x = position.x + dir.x
+            position.z = position.z + dir.z
+            print(string.format("[MOVEMENT] Success! New pos=%d,%d,%d", position.x, position.y, position.z))
+            currentState = STATE.IDLE
+            return true
+        end
+        
+        attempts = attempts + 1
+        
+        if force and attempts < moveAttempts then
+            -- Try to clear the way
+            if turtle.detect() then
+                print("[MOVEMENT] Block detected, digging...")
+                currentState = STATE.BLOCKED
+                turtle.dig()
+                sleep(0.5)
+            elseif turtle.attack() then
+                print("[MOVEMENT] Entity detected, attacking...")
+                currentState = STATE.ATTACKING
+                sleep(0.5)
+            else
+                print("[MOVEMENT] Path blocked but nothing to clear")
+            end
+        else
+            sleep(0.2)
+        end
+    end
+    
+    print("[MOVEMENT] Failed after all attempts")
+    currentState = STATE.BLOCKED
+    return false, "blocked"
+end
+
+-- Backward movement
+function movement.back()
+    if not movement.checkFuel() then
+        return false, "low_fuel"
+    end
+    
+    currentState = STATE.MOVING
+    
+    if turtle.back() then
+        -- Update position (move opposite of facing)
+        local dir = DIRECTIONS[facing]
+        position.x = position.x - dir.x
+        position.z = position.z - dir.z
+        currentState = STATE.IDLE
+        return true
+    end
+    
+    currentState = STATE.BLOCKED
+    return false, "blocked"
+end
+
+-- Up movement with retry logic
+function movement.up(force)
+    if not movement.checkFuel() then
+        return false, "low_fuel"
+    end
+    
+    currentState = STATE.MOVING
+    local attempts = 0
+    
+    while attempts < moveAttempts do
+        if turtle.up() then
+            position.y = position.y + 1
+            currentState = STATE.IDLE
+            return true
+        end
+        
+        attempts = attempts + 1
+        
+        if force and attempts < moveAttempts then
+            if turtle.detectUp() then
+                currentState = STATE.BLOCKED
+                turtle.digUp()
+                sleep(0.5)
+            elseif turtle.attackUp() then
+                currentState = STATE.ATTACKING
+                sleep(0.5)
+            end
+        else
+            sleep(0.2)
+        end
+    end
+    
+    currentState = STATE.BLOCKED
+    return false, "blocked"
+end
+
+-- Down movement with retry logic
+function movement.down(force)
+    if not movement.checkFuel() then
+        return false, "low_fuel"
+    end
+    
+    currentState = STATE.MOVING
+    local attempts = 0
+    
+    while attempts < moveAttempts do
+        if turtle.down() then
+            position.y = position.y - 1
+            currentState = STATE.IDLE
+            return true
+        end
+        
+        attempts = attempts + 1
+        
+        if force and attempts < moveAttempts then
+            if turtle.detectDown() then
+                currentState = STATE.BLOCKED
+                turtle.digDown()
+                sleep(0.5)
+            elseif turtle.attackDown() then
+                currentState = STATE.ATTACKING
+                sleep(0.5)
+            end
+        else
+            sleep(0.2)
+        end
+    end
+    
+    currentState = STATE.BLOCKED
+    return false, "blocked"
+end
+
+-- Go to a specific position (simple pathfinding)
+function movement.gotoPosition(targetX, targetY, targetZ, force)
+    force = force or false
+    
+    -- Move in X axis
+    while position.x ~= targetX do
+        if position.x < targetX then
+            movement.face(1)  -- East
+        else
+            movement.face(3)  -- West
+        end
+        
+        local success, err = movement.forward(force)
+        if not success then
+            return false, err
+        end
+    end
+    
+    -- Move in Z axis
+    while position.z ~= targetZ do
+        if position.z < targetZ then
+            movement.face(0)  -- North
+        else
+            movement.face(2)  -- South
+        end
+        
+        local success, err = movement.forward(force)
+        if not success then
+            return false, err
+        end
+    end
+    
+    -- Move in Y axis
+    while position.y ~= targetY do
+        local success, err
+        if position.y < targetY then
+            success, err = movement.up(force)
+        else
+            success, err = movement.down(force)
+        end
+        
+        if not success then
+            return false, err
+        end
+    end
+    
+    return true
+end
+
+-- Return to origin (0, 0, 0)
+function movement.home(force)
+    return movement.gotoPosition(0, 0, 0, force)
+end
+
+-- Get distance to a position
+function movement.distanceTo(x, y, z)
+    local dx = math.abs(position.x - x)
+    local dy = math.abs(position.y - y)
+    local dz = math.abs(position.z - z)
+    return dx + dy + dz  -- Manhattan distance
+end
+
+-- Configure movement parameters
+function movement.configure(config)
+    if config.moveAttempts then
+        moveAttempts = config.moveAttempts
+    end
+    if config.fuelThreshold then
+        fuelThreshold = config.fuelThreshold
+    end
+end
+
+-- Reset position and facing
+function movement.reset()
+    position = {x = 0, y = 0, z = 0}
+    facing = 0
+    currentState = STATE.IDLE
+end
+
+-- Save state to file
+function movement.saveState(filename)
+    filename = filename or "movement_state.txt"
+    local file = fs.open(filename, "w")
+    if file then
+        file.writeLine(textutils.serialize({
+            position = position,
+            facing = facing
+        }))
+        file.close()
+        return true
+    end
+    return false
+end
+
+-- Load state from file
+function movement.loadState(filename)
+    filename = filename or "movement_state.txt"
+    if fs.exists(filename) then
+        local file = fs.open(filename, "r")
+        if file then
+            local data = textutils.unserialize(file.readAll())
+            file.close()
+            if data then
+                position = data.position or {x = 0, y = 0, z = 0}
+                facing = data.facing or 0
+                return true
+            end
+        end
+    end
+    return false
+end
+
+return movement
+]],
+    ["turtleos/apis/README.md"] = [[# TurtleOS APIs
+
+This directory contains ComputerCraft API modules for TurtleOS.
+
+## Movement API
+
+A state machine-based movement system for tracking turtle position, orientation, and handling intelligent movement with retry logic.
+
+### Loading the API
+
+```lua
+os.loadAPI("turtleos/apis/movement.lua")
+```
+
+### Usage Examples
+
+```lua
+-- Basic movement
+movement.forward(true)  -- Move forward, force through obstacles
+movement.up(false)      -- Move up without forcing
+movement.turnRight()
+movement.turnLeft()
+
+-- Position tracking
+local pos = movement.getPosition()
+print("Position:", pos.x, pos.y, pos.z)
+print("Facing:", movement.getFacing())  -- 0=North, 1=East, 2=South, 3=West
+
+-- Pathfinding
+movement.gotoPosition(10, 5, -3, true)  -- Go to coordinates (10, 5, -3)
+movement.home(true)                      -- Return to origin (0, 0, 0)
+
+-- State management
+print("Current state:", movement.getState())
+movement.saveState("my_position.txt")
+movement.loadState("my_position.txt")
+
+-- Configuration
+movement.configure({
+    moveAttempts = 5,      -- Retry failed movements 5 times
+    fuelThreshold = 200    -- Warn when fuel < 200
+})
+
+-- Fuel management
+if not movement.checkFuel() then
+    movement.refuel(64)
+end
+
+-- Utility
+local distance = movement.distanceTo(10, 5, -3)
+print("Distance to target:", distance)
+```
+
+### API Functions
+
+#### Movement
+- `forward(force)` - Move forward, optionally breaking blocks
+- `back()` - Move backward
+- `up(force)` - Move up, optionally breaking blocks
+- `down(force)` - Move down, optionally breaking blocks
+- `turnRight()` - Turn 90° clockwise
+- `turnLeft()` - Turn 90° counter-clockwise
+- `turnAround()` - Turn 180°
+- `face(direction)` - Face a specific direction (0-3)
+
+#### Navigation
+- `gotoPosition(x, y, z, force)` - Navigate to coordinates
+- `home(force)` - Return to origin (0, 0, 0)
+- `distanceTo(x, y, z)` - Calculate Manhattan distance
+
+#### State Management
+- `getPosition()` - Get current {x, y, z} coordinates
+- `getFacing()` - Get current facing direction (0-3)
+- `getState()` - Get current state (idle, moving, blocked, etc.)
+- `setPosition(x, y, z)` - Manually set position
+- `setFacing(direction)` - Manually set facing
+- `reset()` - Reset to origin
+
+#### Fuel
+- `checkFuel()` - Check if fuel is above threshold
+- `refuel(amount)` - Attempt to refuel from inventory
+
+#### Configuration
+- `configure(config)` - Set moveAttempts and fuelThreshold
+- `saveState(filename)` - Save position/facing to file
+- `loadState(filename)` - Load position/facing from file
+
+### States
+
+The movement API tracks these states:
+- `idle` - Not currently moving
+- `moving` - In motion
+- `blocked` - Path is blocked
+- `attacking` - Clearing hostile mobs
+- `low_fuel` - Fuel below threshold
+]],
+    ["turtleos/lib/core.lua"] = [[-- turtleos/lib/core.lua
+local schema = require("turtleos.lib.schema")
+local logger = require("turtleos.lib.logger")
+
+local core = {}
+
+local function checkAndRefuel()
+    if not turtle then
+        logger.warn("Not running on a turtle, skipping fuel check.")
+        return
+    end
+
+    local MIN_FUEL = 100
+
+    while true do
+        logger.info("Checking fuel levels...")
+        local level = turtle.getFuelLevel()
+        if level == "unlimited" then
+            logger.info("Fuel level: Unlimited")
+            return
+        end
+
+        logger.info("Current Fuel: " .. level)
+
+        for i = 1, 16 do
+            turtle.select(i)
+            if turtle.refuel(0) then
+                turtle.refuel()
+                logger.info("Refueled from slot " .. i)
+            end
+        end
+        
+        level = turtle.getFuelLevel()
+        logger.info("New Fuel Level: " .. level)
+
+        if level >= MIN_FUEL then
+            break
+        end
+
+        logger.warn("Fuel low (" .. level .. "/" .. MIN_FUEL .. "). Waiting for assistance.")
+        print("Press any key to retry...")
+        os.pullEvent("key")
+    end
+end
+
+function core.init()
+    logger.info("TurtleOS initializing...")
+    
+    checkAndRefuel()
+    
+    -- Load schema
+    local schemaData, err = schema.load("turtle_schema.json")
+    if not schemaData then
+        if err and string.find(err, "Schema file not found") then
+            logger.warn("Schema not found. Creating default configuration...")
+            local defaultSchema = {
+                name = "Default Farmer",
+                version = "1.0.0",
+                role = "farmer",
+                strategy = "potato"
+            }
+            local file = fs.open("turtle_schema.json", "w")
+            file.write(textutils.serializeJSON(defaultSchema))
+            file.close()
+            
+            -- Retry load
+            schemaData, err = schema.load("turtle_schema.json")
+        end
+
+        if not schemaData then
+            logger.error("Failed to load schema: " .. (err or "unknown error"))
+            return false
+        end
+    end
+
+    logger.info("Loaded schema for: " .. (schemaData.name or "Unknown Turtle"))
+
+    -- Interactive Configuration
+    if schemaData.role == "farmer" then
+        print("Press 'c' to configure strategy (3s)...")
+        local timerId = os.startTimer(3)
+        local shouldEdit = false
+        while true do
+            local event, p1 = os.pullEvent()
+            if event == "timer" and p1 == timerId then
+                break
+            elseif event == "char" and p1 == "c" then
+                shouldEdit = true
+                break
+            end
+        end
+
+        if shouldEdit then
+            print("Select Farm Type:")
+            print("1. Potato")
+            print("2. Tree")
+            write("> ")
+            local input = read()
+            if input == "1" then
+                schemaData.strategy = "potato"
+                print("Strategy set to: potato")
+            elseif input == "2" then
+                schemaData.strategy = "tree"
+                print("Strategy set to: tree")
+            end
+            
+            -- Save changes
+            local file = fs.open("turtle_schema.json", "w")
+            file.write(textutils.serializeJSON(schemaData))
+            file.close()
+        end
+    end
+
+    -- Determine role
+    local role = schemaData.role
+    if not role then
+        logger.error("No role defined in schema")
+        return false
+    end
+
+    logger.info("Role: " .. role)
+
+    -- Load role module
+    local rolePath = "turtleos.roles." .. role
+    local success, roleModule = pcall(require, rolePath)
+    
+    if not success then
+        logger.error("Failed to load role module: " .. rolePath)
+        logger.error(roleModule) -- Error message
+        return false
+    end
+
+    -- Execute role
+    if roleModule.run then
+        roleModule.run(schemaData)
+    else
+        logger.error("Role module missing 'run' function")
+        return false
+    end
+
+    return true
+end
+
+return core
+]],
+    ["turtleos/lib/logger.lua"] = [[-- turtleos/lib/logger.lua
+
+local logger = {}
+
+function logger.log(message)
+    print("[LOG] " .. message)
+    -- In a real implementation, we might write to a file
+end
+
+function logger.error(message)
+    printError("[ERROR] " .. message)
+end
+
+function logger.warn(message)
+    print("[WARN] " .. message)
+end
+
+function logger.info(message)
+    print("[INFO] " .. message)
+end
+
+return logger
+]],
+    ["turtleos/lib/schema.lua"] = [[-- turtleos/lib/schema.lua
+
+local schema = {}
+
+function schema.load(path)
+    if not fs.exists(path) then
+        return nil, "Schema file not found: " .. path
+    end
+
+    local file = fs.open(path, "r")
+    local content = file.readAll()
+    file.close()
+
+    local data = textutils.unserializeJSON(content)
+    if not data then
+        return nil, "Failed to parse schema JSON"
+    end
+
+    return data
+end
+
+return schema
+]],
+    ["turtleos/roles/builder.lua"] = [[-- turtleos/roles/builder.lua
+local logger = require("turtleos.lib.logger")
+
+local builder = {}
+
+function builder.run(schema)
+    logger.info("Starting Builder Role...")
+    -- Builder logic here
+    -- Might load a blueprint from schema
+end
+
+return builder
+]],
+    ["turtleos/roles/farmer.lua"] = [[-- turtleos/roles/farmer.lua
+local logger = require("turtleos.lib.logger")
+
+local farmer = {}
+
+function farmer.run(schema)
+    logger.info("Starting Farmer Role...")
+    
+    local strategyName = schema.strategy
+    if not strategyName then
+        logger.error("No strategy defined for Farmer")
+        return
+    end
+
+    local strategyPath = "turtleos.strategies.farmer." .. strategyName
+    local success, strategy = pcall(require, strategyPath)
+
+    if not success then
+        logger.error("Failed to load strategy: " .. strategyPath)
+        logger.error(strategy)
+        return
+    end
+
+    logger.info("Executing strategy: " .. strategyName)
+    
+    while true do
+        if strategy.execute then
+            strategy.execute()
+        else
+            logger.error("Strategy missing 'execute' function")
+            break
+        end
+        sleep(1) -- Prevent infinite loop crash if strategy is instant
+    end
+end
+
+return farmer
+]],
+    ["turtleos/roles/miner.lua"] = [[-- turtleos/roles/miner.lua
+local logger = require("turtleos.lib.logger")
+
+local miner = {}
+
+function miner.run(schema)
+    logger.info("Starting Miner Role...")
+    -- Miner logic here
+end
+
+return miner
+]],
+    ["turtleos/strategies/farmer/potato.lua"] = [[-- turtleos/strategies/farmer/potato.lua
+local logger = require("turtleos.lib.logger")
+
+-- Ensure movement API is loaded
+local movement = require("turtleos.apis.movement")
+
+local potato = {}
+local initialized = false
+
+local function selectItem(name)
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item and item.name == name then
+            turtle.select(i)
+            return true
+        end
+    end
+    return false
+end
+
+local function hasSpace()
+    for i = 1, 16 do
+        if turtle.getItemCount(i) == 0 then return true end
+        local item = turtle.getItemDetail(i)
+        if item and item.name == "minecraft:potato" and turtle.getItemSpace(i) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
+function potato.execute()
+    -- 1. Initialization: Move to start offset (1, 1)
+    if not initialized then
+        logger.info("Initializing Farmer Strategy v2.1...")
+        
+        -- Ensure we are hovering (Y=1) to avoid breaking crops or getting blocked
+        if movement.getPosition().y < 1 then
+             logger.info("Moving to hover height...")
+             if not movement.up() then
+                 logger.error("Failed to move up!")
+                 return
+             end
+        end
+
+        -- Move to offset (1, 1) relative to origin
+        -- Target: X=1, Z=1, Y=1
+        logger.info("Moving to start offset (1, 1)...")
+        local success, err = movement.gotoPosition(1, 1, 1)
+        if not success then
+            logger.error("Failed to reach start position: " .. (err or "unknown"))
+        else
+            logger.info("Reached start position.")
+        end
+        
+        initialized = true
+        return
+    end
+
+    logger.info("Farming potatoes...")
+
+    -- 2. Check fuel
+    if turtle.getFuelLevel() < 100 then
+        logger.warn("Low fuel! Attempting to refuel...")
+        movement.refuel()
+    end
+
+    -- 3. Farm the block below
+    local hasCrop, cropData = turtle.inspectDown()
+    
+    if hasCrop and cropData.name == "minecraft:potatoes" then
+        if cropData.state.age == 7 then
+            if hasSpace() then
+                logger.info("Harvesting potato below...")
+                
+                -- Select potato to ensure drops stack
+                selectItem("minecraft:potato")
+                
+                turtle.digDown()
+                turtle.suckDown() -- Collect extra drops
+                
+                -- Select potato for planting
+                if selectItem("minecraft:potato") then
+                    turtle.placeDown() -- Replant
+                else
+                    logger.warn("No potatoes to replant!")
+                end
+            else
+                logger.warn("Inventory full! Skipping harvest.")
+            end
+        else
+            -- logger.info("Waiting for potato to grow...")
+        end
+    elseif not hasCrop then
+        -- Air below (or we just dug it). Plant.
+        logger.info("Planting potato below...")
+        
+        if selectItem("minecraft:potato") then
+            if not turtle.placeDown() then
+                 logger.warn("Failed to plant (Blocked?)")
+            end
+        else
+            logger.warn("No potatoes to plant!")
+        end
+    end
+
+    -- 4. Move forward
+    if not movement.forward() then
+        logger.warn("Movement blocked! Attempting to find path...")
+        
+        -- Try turning right until we can move
+        for i = 1, 4 do
+            movement.turnRight()
+            if movement.forward() then
+                logger.info("Path found.")
+                return
+            end
+        end
+        
+        logger.warn("Trapped! Could not move in any direction.")
+    end
+end
+
+return potato
+]],
+    ["turtleos/strategies/farmer/tree.lua"] = [[-- turtleos/strategies/farmer/tree.lua
+local logger = require("turtleos.lib.logger")
+
+-- Load movement API
+local movement = require("turtleos.apis.movement")
+
+local tree = {}
+
+-- Configuration
+local treeLocations = {
+    {x=0, z=0}, {x=0, z=2}, {x=0, z=4},
+    {x=2, z=0}, {x=2, z=2}, {x=2, z=4},
+    {x=4, z=0}, {x=4, z=2}, {x=4, z=4}
+}
+local currentTreeIndex = 1
+
+local function selectItem(pattern)
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item and item.name:find(pattern) then
+            turtle.select(i)
+            return true
+        end
+    end
+    return false
+end
+
+local function isLog(name)
+    if not name then return false end
+    -- Match any type of log
+    return name:find("log") ~= nil or name:find("wood") ~= nil or name:find("stem") ~= nil
+end
+
+local function isSapling(name)
+    if not name then return false end
+    return name:find("sapling") ~= nil
+end
+
+local function isLeaves(name)
+    if not name then return false end
+    return name:find("leaves") ~= nil or name:find("wart_block") ~= nil
+end
+
+-- Comprehensive tree chopping that handles branches
+local function chopTree()
+    logger.info("Starting tree chop sequence...")
+    local logsChopped = 0
+    
+    -- Dig the base log
+    if turtle.detect() then
+        local success, data = turtle.inspect()
+        if success then
+            logger.info("Base block: " .. data.name)
+            if isLog(data.name) then
+                turtle.dig()
+                logsChopped = logsChopped + 1
+            else
+                logger.warn("Front block is not a log: " .. data.name)
+                return 0
+            end
+        end
+    else
+        logger.warn("No block in front to chop")
+        return 0
+    end
+    
+    -- Move forward into the tree position
+    if not movement.forward(true) then
+        logger.error("Failed to move into tree position")
+        return logsChopped
+    end
+    
+    -- Chop upwards
+    local height = 0
+    while height < 32 do -- Max tree height limit
+        local hasUp, upData = turtle.inspectUp()
+        
+        if hasUp and (isLog(upData.name) or isLeaves(upData.name)) then
+            if isLog(upData.name) then
+                logger.info("Found log above at height " .. height)
+                turtle.digUp()
+                logsChopped = logsChopped + 1
+            else
+                -- It's leaves, dig through them
+                turtle.digUp()
+            end
+            
+            if movement.up(true) then
+                height = height + 1
+            else
+                logger.warn("Failed to move up at height " .. height)
+                break
+            end
+        else
+            -- No more logs/leaves above
+            break
+        end
+        
+        -- Check and dig logs in all horizontal directions at this level
+        for dir = 0, 3 do
+            movement.face(dir)
+            local hasFront, frontData = turtle.inspect()
+            if hasFront and isLog(frontData.name) then
+                logger.info("Found adjacent log at height " .. height)
+                turtle.dig()
+                logsChopped = logsChopped + 1
+            end
+        end
+    end
+    
+    logger.info("Chopped " .. logsChopped .. " logs, descending from height " .. height)
+    
+    -- Come back down
+    for i = 1, height do
+        if not movement.down(true) then
+            logger.error("Failed to descend at level " .. i)
+            break
+        end
+    end
+    
+    -- Move back to standing position (back out of the tree)
+    movement.back()
+    
+    return logsChopped
+end
+
+-- Move to a specific standing position safely
+local function safeGoto(targetX, targetZ)
+    local current = movement.getPosition()
+    
+    -- If we are changing columns (X), move to safe Z zone first to avoid hitting trees
+    if math.abs(current.x - targetX) > 0.1 then
+        -- Move to Z = -2 (assumed safe aisle connector)
+        local success, err = movement.gotoPosition(current.x, 0, -2)
+        if not success then
+            logger.error("Failed to move to safe zone: " .. (err or "unknown"))
+            return false
+        end
+        
+        success, err = movement.gotoPosition(targetX, 0, -2)
+        if not success then
+            logger.error("Failed to move to target column: " .. (err or "unknown"))
+            return false
+        end
+    end
+    
+    local success, err = movement.gotoPosition(targetX, 0, targetZ)
+    if not success then
+        logger.error("Failed to move to target tree: " .. (err or "unknown"))
+        return false
+    end
+    
+    return true
+end
+
+function tree.execute()
+    -- Debug: Check if turtle API exists
+    if not turtle then
+        logger.error("Turtle API not available! Are you running this on a turtle?")
+        return
+    end
+    
+    -- Check fuel
+    local fuelLevel = turtle.getFuelLevel()
+    logger.info("Current fuel level: " .. tostring(fuelLevel))
+    
+    if fuelLevel ~= "unlimited" and fuelLevel < 100 then
+        logger.info("Attempting to refuel...")
+        movement.refuel()
+        logger.info("New fuel level: " .. turtle.getFuelLevel())
+    end
+
+    -- Get current tree target
+    local targetTree = treeLocations[currentTreeIndex]
+    local standX = targetTree.x - 1
+    local standZ = targetTree.z
+    
+    logger.info(string.format("Moving to tree %d at (%d, %d)", currentTreeIndex, targetTree.x, targetTree.z))
+    
+    -- Go to standing position
+    if not safeGoto(standX, standZ) then
+        logger.error("Aborting tree cycle due to movement error.")
+        return
+    end
+    
+    -- Face East (towards the tree at x+1)
+    movement.face(1)
+
+    local hasBlock, data = turtle.inspect()
+    
+    if hasBlock then
+        logger.info("Block detected: " .. data.name)
+    else
+        logger.info("No block in front")
+    end
+    
+    if hasBlock and isLog(data.name) then
+        logger.info("Found tree! Starting comprehensive chop...")
+        local logsChopped = chopTree()
+        logger.info("Finished chopping! Total logs: " .. logsChopped)
+        
+        -- Try to plant immediately after chopping
+        logger.info("Planting sapling...")
+        if selectItem("sapling") then
+            if turtle.place() then
+                logger.info("Sapling planted successfully")
+            else
+                logger.warn("Failed to place sapling (something blocking?)")
+            end
+        else
+            logger.warn("No saplings found in inventory!")
+        end
+
+    elseif not hasBlock then
+        -- Space is empty, try to plant
+        logger.info("Space empty. Planting sapling...")
+        if selectItem("sapling") then
+            if not turtle.place() then
+                logger.warn("Failed to place sapling.")
+            end
+        else
+            logger.warn("No saplings found in inventory!")
+        end
+    else
+        -- Block exists but is not a log.
+        if isSapling(data.name) then
+             logger.info("Sapling detected, waiting for growth...")
+        else
+             logger.warn("Unknown block in front: " .. data.name)
+        end
+    end
+    
+    -- Move to next tree index for next execution
+    currentTreeIndex = currentTreeIndex + 1
+    if currentTreeIndex > #treeLocations then
+        currentTreeIndex = 1
+        logger.info("Cycle complete. Restarting...")
+        sleep(5) -- Wait a bit before restarting the cycle
+    end
+end
+
+return tree
+]],
 }
 
 for path, content in pairs(files) do
