@@ -10,24 +10,37 @@ local function checkAndRefuel()
         return
     end
 
-    logger.info("Checking fuel levels...")
-    local level = turtle.getFuelLevel()
-    if level == "unlimited" then
-        logger.info("Fuel level: Unlimited")
-        return
-    end
+    local MIN_FUEL = 100
 
-    logger.info("Current Fuel: " .. level)
-
-    for i = 1, 16 do
-        turtle.select(i)
-        if turtle.refuel(0) then
-            turtle.refuel()
-            logger.info("Refueled from slot " .. i)
+    while true do
+        logger.info("Checking fuel levels...")
+        local level = turtle.getFuelLevel()
+        if level == "unlimited" then
+            logger.info("Fuel level: Unlimited")
+            return
         end
+
+        logger.info("Current Fuel: " .. level)
+
+        for i = 1, 16 do
+            turtle.select(i)
+            if turtle.refuel(0) then
+                turtle.refuel()
+                logger.info("Refueled from slot " .. i)
+            end
+        end
+        
+        level = turtle.getFuelLevel()
+        logger.info("New Fuel Level: " .. level)
+
+        if level >= MIN_FUEL then
+            break
+        end
+
+        logger.warn("Fuel low (" .. level .. "/" .. MIN_FUEL .. "). Waiting for assistance.")
+        print("Press any key to retry...")
+        os.pullEvent("key")
     end
-    
-    logger.info("New Fuel Level: " .. turtle.getFuelLevel())
 end
 
 function core.init()
@@ -61,6 +74,42 @@ function core.init()
     end
 
     logger.info("Loaded schema for: " .. (schemaData.name or "Unknown Turtle"))
+
+    -- Interactive Configuration
+    if schemaData.role == "farmer" then
+        print("Press 'c' to configure strategy (3s)...")
+        local timerId = os.startTimer(3)
+        local shouldEdit = false
+        while true do
+            local event, p1 = os.pullEvent()
+            if event == "timer" and p1 == timerId then
+                break
+            elseif event == "char" and p1 == "c" then
+                shouldEdit = true
+                break
+            end
+        end
+
+        if shouldEdit then
+            print("Select Farm Type:")
+            print("1. Potato")
+            print("2. Tree")
+            write("> ")
+            local input = read()
+            if input == "1" then
+                schemaData.strategy = "potato"
+                print("Strategy set to: potato")
+            elseif input == "2" then
+                schemaData.strategy = "tree"
+                print("Strategy set to: tree")
+            end
+            
+            -- Save changes
+            local file = fs.open("turtle_schema.json", "w")
+            file.write(textutils.serializeJSON(schemaData))
+            file.close()
+        end
+    end
 
     -- Determine role
     local role = schemaData.role

@@ -9,6 +9,28 @@ end
 local potato = {}
 local initialized = false
 
+local function selectItem(name)
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item and item.name == name then
+            turtle.select(i)
+            return true
+        end
+    end
+    return false
+end
+
+local function hasSpace()
+    for i = 1, 16 do
+        if turtle.getItemCount(i) == 0 then return true end
+        local item = turtle.getItemDetail(i)
+        if item and item.name == "minecraft:potato" and turtle.getItemSpace(i) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
 function potato.execute()
     -- 1. Initialization: Move to start offset (1, 1)
     if not initialized then
@@ -50,10 +72,24 @@ function potato.execute()
     
     if hasCrop and cropData.name == "minecraft:potatoes" then
         if cropData.state.age == 7 then
-            logger.info("Harvesting potato below...")
-            turtle.digDown()
-            turtle.suckDown() -- Collect extra drops
-            turtle.placeDown() -- Replant
+            if hasSpace() then
+                logger.info("Harvesting potato below...")
+                
+                -- Select potato to ensure drops stack
+                selectItem("minecraft:potato")
+                
+                turtle.digDown()
+                turtle.suckDown() -- Collect extra drops
+                
+                -- Select potato for planting
+                if selectItem("minecraft:potato") then
+                    turtle.placeDown() -- Replant
+                else
+                    logger.warn("No potatoes to replant!")
+                end
+            else
+                logger.warn("Inventory full! Skipping harvest.")
+            end
         else
             -- logger.info("Waiting for potato to grow...")
         end
@@ -61,18 +97,7 @@ function potato.execute()
         -- Air below (or we just dug it). Plant.
         logger.info("Planting potato below...")
         
-        -- Find and select potato
-        local foundPotato = false
-        for i = 1, 16 do
-            local item = turtle.getItemDetail(i)
-            if item and item.name == "minecraft:potato" then
-                turtle.select(i)
-                foundPotato = true
-                break
-            end
-        end
-
-        if foundPotato then
+        if selectItem("minecraft:potato") then
             if not turtle.placeDown() then
                  logger.warn("Failed to plant (Blocked?)")
             end
@@ -83,12 +108,18 @@ function potato.execute()
 
     -- 4. Move forward
     if not movement.forward() then
-        logger.warn("Movement blocked! Turning...")
-        -- Simple obstacle avoidance: Turn right and try to move
-        movement.turnRight()
-        if not movement.forward() then
-             logger.warn("Still blocked after turning.")
+        logger.warn("Movement blocked! Attempting to find path...")
+        
+        -- Try turning right until we can move
+        for i = 1, 4 do
+            movement.turnRight()
+            if movement.forward() then
+                logger.info("Path found.")
+                return
+            end
         end
+        
+        logger.warn("Trapped! Could not move in any direction.")
     end
 end
 

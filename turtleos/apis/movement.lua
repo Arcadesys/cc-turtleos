@@ -62,9 +62,29 @@ function checkFuel()
         return true
     end
     
-    if level < fuelThreshold then
+    while level < fuelThreshold do
         currentState = STATE.LOW_FUEL
-        return false
+        
+        -- Try to refuel from all slots
+        for i = 1, 16 do
+            turtle.select(i)
+            if turtle.refuel(0) then
+                turtle.refuel()
+            end
+        end
+        
+        level = turtle.getFuelLevel()
+        if level >= fuelThreshold then
+            break
+        end
+        
+        print("Fuel low (" .. level .. "/" .. fuelThreshold .. "). Waiting for assistance.")
+        print("Press any key to retry...")
+        os.pullEvent("key")
+    end
+    
+    if currentState == STATE.LOW_FUEL then
+        currentState = STATE.IDLE
     end
     return true
 end
