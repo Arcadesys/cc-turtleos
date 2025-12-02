@@ -1,16 +1,29 @@
 -- turtleos/strategies/farmer/potato.lua
 local logger = require("turtleos.lib.logger")
-
--- Ensure movement API is loaded
 local movement = require("turtleos.apis.movement")
 
 local potato = {}
 local initialized = false
 
+-- Configuration
+local FIELD_SIZE = 9
+
 local function selectItem(name)
     for i = 1, 16 do
         local item = turtle.getItemDetail(i)
         if item and item.name == name then
+            turtle.select(i)
+            return true
+        end
+    end
+    return false
+end
+
+local function selectHoe()
+    -- Try to find any hoe
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item and item.name:find("hoe") then
             turtle.select(i)
             return true
         end
@@ -29,106 +42,118 @@ local function hasSpace()
     return false
 end
 
-function potato.execute()
-    -- 1. Initialization: Move to start offset (1, 1)
-    if not initialized then
-        logger.info("Initializing Farmer Strategy v2.1...")
-        
-        -- Ensure we are hovering (Y=1) to avoid breaking crops or getting blocked
-        if movement.getPosition().y < 1 then
-             logger.info("Moving to hover height...")
-             if not movement.up() then
-                 logger.error("Failed to move up!")
-                 return
-             end
-        end
-
-        -- Move to offset (1, 1) relative to origin
-        -- Target: X=1, Z=1, Y=1
-        logger.info("Moving to start offset (1, 1)...")
-        local success, err = movement.gotoPosition(1, 1, 1)
-        if not success then
-            logger.error("Failed to reach start position: " .. (err or "unknown"))
-        else
-            logger.info("Reached start position.")
-        end
-        
-        initialized = true
+local function farmBlock()
+    local hasBlock, data = turtle.inspectDown()
+    
+    if not hasBlock then
+        -- Air? Maybe we can plant if there's farmland below? 
+        -- But inspectDown checks the block we interact with.
+        -- If it's air, we might have dug it up.
+        -- Try to plant anyway if we have potatoes?
+        -- Usually air means we can't plant unless we place dirt first.
         return
     end
 
-    logger.info("Farming potatoes...")
-
-    -- 2. Check fuel
-    if turtle.getFuelLevel() < 100 then
-        logger.warn("Low fuel! Attempting to refuel...")
-        movement.refuel()
-    end
-
-    -- 3. Farm the block below
-    local hasCrop, cropData = turtle.inspectDown()
-    
-    if hasCrop and cropData.name == "minecraft:potatoes" then
-        if cropData.state.age == 7 then
+    if data.name == "minecraft:potatoes" then
+        if data.state.age == 7 then
             if hasSpace() then
-                logger.info("Harvesting potato below...")
-                
-                -- Select potato to ensure drops stack
-                selectItem("minecraft:potato")
-                
+                logger.info("Harvesting...")
+                selectItem("minecraft:potato") -- Select potato for drops
                 turtle.digDown()
-                turtle.suckDown() -- Collect extra drops
+                -- turtle.suckDown() -- Auto-pickup usually works, but suck ensures we get it
                 
-                -- Select potato for planting
+                -- Replant
                 if selectItem("minecraft:potato") then
-                    turtle.placeDown() -- Replant
-                else
-                    logger.warn("No potatoes to replant!")
+                    turtle.placeDown()
                 end
             else
-                logger.warn("Inventory full! Skipping harvest.")
+                logger.warn("Inventory full!")
             end
-        else
-            -- logger.info("Waiting for potato to grow...")
         end
-    elseif not hasCrop then
-        -- Air below (or we just dug it). Plant.
-        logger.info("Planting potato below...")
-        
-        if selectItem("minecraft:potato") then
-            if not turtle.placeDown() then
-                 logger.warn("Failed to plant (Blocked?)")
-            end
-        else
-            logger.warn("No potatoes to plant!")
-        end
-    elseif cropData.name == "minecraft:dirt" or cropData.name == "minecraft:grass_block" then
-        logger.info("Tilling ground...")
-        if turtle.digDown() then
-            logger.info("Tilled ground.")
-            -- Attempt to plant immediately after tilling
+    elseif data.name == "minecraft:dirt" or data.name == "minecraft:grass_block" then
+        logger.info("Tilling...")
+        if selectHoe() then
+            turtle.placeDown() -- Till with hoe
+            -- Now plant
             if selectItem("minecraft:potato") then
                 turtle.placeDown()
             end
         else
-            logger.warn("Failed to till ground.")
+            logger.error("No hoe found!")
+        end
+    elseif data.name == "minecraft:farmland" then
+        -- Just plant
+        if selectItem("minecraft:potato") then
+            local success = turtle.placeDown()
+            if not success then
+                -- Maybe blocked by entity or something?
+            end
+        end
+    end
+end
+
+function potato.execute()
+    if not initialized then
+        logger.info("Initializing Potato Farm Strategy (9x9 Grid)...")
+        
+        -- Ensure hovering
+        if movement.getPosition().y < 1 then
+            movement.up(true)
+        end
+
+        -- Go to start (1, 1)
+        movement.gotoPosition(1, 1, 1)
+        movement.face(1) -- Face East
+        
+        initialized = true
+    end
+
+    logger.info("Starting farm cycle...")
+
+    -- Check fuel
+    if turtle.getFuelLevel() < 100 then
+        movement.refuel()
+    end
+
+    -- Traverse 9x9 grid
+    -- We assume we are at (1,1) or close to it.
+    -- We will iterate through all positions.
+    
+    for z = 1, FIELD_SIZE do
+        -- Determine X direction for this row (Snake pattern)
+        local startX, endX, stepX
+        if z % 2 == 1 then
+            startX, endX, stepX = 1, FIELD_SIZE, 1
+            movement.face(1) -- Face East
+        else
+            startX, endX, stepX = FIELD_SIZE, 1, -1
+            movement.face(3) -- Face West
+        end
+
+        for x = startX, endX, stepX do
+            -- Go to position (should be adjacent)
+            movement.gotoPosition(x, 1, z)
+            
+            -- Farm the block
+            farmBlock()
+            
+            -- Inventory check
+            if turtle.getItemCount(16) > 0 then
+                -- If last slot is full, maybe we are full?
+                -- Simple check: if full, go home and deposit?
+                -- For now, just warn.
+            end
         end
     end
 
-    -- 4. Move forward
-    if not movement.forward() then
-        logger.warn("Movement blocked! Attempting to find path...")
-        
-        -- Try turning right until we can move
-        for i = 1, 4 do
-            movement.turnRight()
-            if movement.forward() then
-                logger.info("Path found.")
-                return
-            end
-        end
-        
-        logger.warn("Trapped! Could not move in any direction.")
+    logger.info("Farm cycle complete. Returning to start.")
+    movement.gotoPosition(1, 1, 1)
+    movement.face(1)
+    
+    -- Sleep is handled by farmer.lua loop, but we can sleep here too if we want a longer delay between cycles.
+    logger.info("Waiting for crops to grow...")
+    for i=1, 60 do
+        sleep(1)
     end
 end
 
