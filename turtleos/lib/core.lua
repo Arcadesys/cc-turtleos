@@ -4,8 +4,36 @@ local logger = require("turtleos.lib.logger")
 
 local core = {}
 
+local function checkAndRefuel()
+    if not turtle then
+        logger.warn("Not running on a turtle, skipping fuel check.")
+        return
+    end
+
+    logger.info("Checking fuel levels...")
+    local level = turtle.getFuelLevel()
+    if level == "unlimited" then
+        logger.info("Fuel level: Unlimited")
+        return
+    end
+
+    logger.info("Current Fuel: " .. level)
+
+    for i = 1, 16 do
+        turtle.select(i)
+        if turtle.refuel(0) then
+            turtle.refuel()
+            logger.info("Refueled from slot " .. i)
+        end
+    end
+    
+    logger.info("New Fuel Level: " .. turtle.getFuelLevel())
+end
+
 function core.init()
     logger.info("TurtleOS initializing...")
+    
+    checkAndRefuel()
     
     -- Load schema
     local schemaData, err = schema.load("turtle_schema.json")
