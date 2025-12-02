@@ -1,0 +1,6 @@
+{
+    "name": "Potato Farmer",
+    "version": "1.0.0",
+    "role": "farmer",
+    "strategy": "potato"
+}
