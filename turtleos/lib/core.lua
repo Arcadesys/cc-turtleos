@@ -10,8 +10,26 @@ function core.init()
     -- Load schema
     local schemaData, err = schema.load("turtle_schema.json")
     if not schemaData then
-        logger.error("Failed to load schema: " .. (err or "unknown error"))
-        return false
+        if err and string.find(err, "Schema file not found") then
+            logger.warn("Schema not found. Creating default configuration...")
+            local defaultSchema = {
+                name = "Default Farmer",
+                version = "1.0.0",
+                role = "farmer",
+                strategy = "potato"
+            }
+            local file = fs.open("turtle_schema.json", "w")
+            file.write(textutils.serializeJSON(defaultSchema))
+            file.close()
+            
+            -- Retry load
+            schemaData, err = schema.load("turtle_schema.json")
+        end
+
+        if not schemaData then
+            logger.error("Failed to load schema: " .. (err or "unknown error"))
+            return false
+        end
     end
 
     logger.info("Loaded schema for: " .. (schemaData.name or "Unknown Turtle"))

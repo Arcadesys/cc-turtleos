@@ -1,6 +1,17 @@
 -- TurtleOS Installer
 print('Installing TurtleOS...')
 
+-- Wipe drive (except for this installer and rom)
+print("Wiping drive...")
+local runningProgram = shell.getRunningProgram()
+local allFiles = fs.list("/")
+for _, file in ipairs(allFiles) do
+    if file ~= "rom" and file ~= runningProgram then
+        print("Deleting " .. file)
+        fs.delete(file)
+    end
+end
+
 local files = {
     ['boot.lua'] = "-- boot.lua\r\n-- This file should be renamed to startup.lua on the turtle or called by it.\r\n\r\n-- Add the root directory to the package path so we can require files relative to root\r\npackage.path = \"/?.lua;/?/init.lua;\" .. package.path\r\n\r\n-- Load APIs\r\nif fs.exists(\"turtleos/apis/movement.lua\") then\r\n    os.loadAPI(\"turtleos/apis/movement.lua\")\r\nend\r\n\r\nlocal core = require(\"turtleos.lib.core\")\r\n\r\nprint(\"Booting TurtleOS...\")\r\ncore.init()\r\n",
     ['turtleos/lib/core.lua'] = "-- turtleos/lib/core.lua\r\nlocal schema = require(\"turtleos.lib.schema\")\r\nlocal logger = require(\"turtleos.lib.logger\")\r\n\r\nlocal core = {}\r\n\r\nfunction core.init()\r\n    logger.info(\"TurtleOS initializing...\")\r\n    \r\n    -- Load schema\r\n    local schemaData, err = schema.load(\"turtle_schema.json\")\r\n    if not schemaData then\r\n        logger.error(\"Failed to load schema: \" .. (err or \"unknown error\"))\r\n        return false\r\n    end\r\n\r\n    logger.info(\"Loaded schema for: \" .. (schemaData.name or \"Unknown Turtle\"))\r\n\r\n    -- Determine role\r\n    local role = schemaData.role\r\n    if not role then\r\n        logger.error(\"No role defined in schema\")\r\n        return false\r\n    end\r\n\r\n    logger.info(\"Role: \" .. role)\r\n\r\n    -- Load role module\r\n    local rolePath = \"turtleos.roles.\" .. role\r\n    local success, roleModule = pcall(require, rolePath)\r\n    \r\n    if not success then\r\n        logger.error(\"Failed to load role module: \" .. rolePath)\r\n        logger.error(roleModule) -- Error message\r\n        return false\r\n    end\r\n\r\n    -- Execute role\r\n    if roleModule.run then\r\n        roleModule.run(schemaData)\r\n    else\r\n        logger.error(\"Role module missing 'run' function\")\r\n        return false\r\n    end\r\n\r\n    return true\r\nend\r\n\r\nreturn core\r\n",
