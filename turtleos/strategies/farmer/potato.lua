@@ -7,31 +7,42 @@ if not movement then
 end
 
 local potato = {}
+local initialized = false
 
 function potato.execute()
+    -- 1. Initialization: Move to start offset (1, 1)
+    if not initialized then
+        logger.info("Initializing Farmer Strategy v2.1...")
+        
+        -- Ensure we are hovering (Y=1) to avoid breaking crops or getting blocked
+        if movement.getPosition().y < 1 then
+             logger.info("Moving to hover height...")
+             if not movement.up() then
+                 logger.error("Failed to move up!")
+                 return
+             end
+        end
+
+        -- Move to offset (1, 1) relative to origin
+        -- Target: X=1, Z=1, Y=1
+        logger.info("Moving to start offset (1, 1)...")
+        local success, err = movement.gotoPosition(1, 1, 1)
+        if not success then
+            logger.error("Failed to reach start position: " .. (err or "unknown"))
+        else
+            logger.info("Reached start position.")
+        end
+        
+        initialized = true
+        return
+    end
+
     logger.info("Farming potatoes...")
 
-    -- 1. Check if we need to refuel
+    -- 2. Check fuel
     if turtle.getFuelLevel() < 100 then
         logger.warn("Low fuel! Attempting to refuel...")
         movement.refuel()
-    end
-
-    -- 2. Ensure we are hovering above the crops
-    -- Check if we are standing on farmland (too low)
-    local hasBlockDown, dataDown = turtle.inspectDown()
-    if hasBlockDown and (dataDown.name == "minecraft:farmland" or dataDown.name == "minecraft:dirt" or dataDown.name == "minecraft:grass_block") then
-        logger.info("Standing on soil. Moving up to hover.")
-        movement.up()
-        return -- Skip farming this tick, adjust position first
-    end
-
-    -- Check if we are blocked by a crop in front (too low)
-    local hasBlockFront, dataFront = turtle.inspect()
-    if hasBlockFront and (dataFront.name == "minecraft:potatoes") then
-        logger.info("Potato in front. Moving up to hover.")
-        movement.up()
-        return
     end
 
     -- 3. Farm the block below
@@ -60,8 +71,7 @@ function potato.execute()
         -- Simple obstacle avoidance: Turn right and try to move
         movement.turnRight()
         if not movement.forward() then
-             -- If still blocked, maybe turn again?
-             -- For now, just turn to avoid getting stuck forever facing a wall
+             logger.warn("Still blocked after turning.")
         end
     end
 end
