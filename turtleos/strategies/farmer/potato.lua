@@ -60,8 +60,24 @@ function potato.execute()
     elseif not hasCrop then
         -- Air below (or we just dug it). Plant.
         logger.info("Planting potato below...")
-        if not turtle.placeDown() then
-             logger.warn("Failed to plant (Empty slot?)")
+        
+        -- Find and select potato
+        local foundPotato = false
+        for i = 1, 16 do
+            local item = turtle.getItemDetail(i)
+            if item and item.name == "minecraft:potato" then
+                turtle.select(i)
+                foundPotato = true
+                break
+            end
+        end
+
+        if foundPotato then
+            if not turtle.placeDown() then
+                 logger.warn("Failed to plant (Blocked?)")
+            end
+        else
+            logger.warn("No potatoes to plant!")
         end
     end
 

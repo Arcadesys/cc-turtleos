@@ -11,6 +11,10 @@ function logger.error(message)
     printError("[ERROR] " .. message)
 end
 
+function logger.warn(message)
+    print("[WARN] " .. message)
+end
+
 function logger.info(message)
     print("[INFO] " .. message)
 end

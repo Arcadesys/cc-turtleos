@@ -81,3 +81,8 @@ When asked to add new functionality, determine if it fits an existing **Role** o
 
 *   **Context**: When working on this repo, always check `turtle_schema.json` to understand the current active configuration.
 *   **Verification**: After creating a new strategy or role, you can "test" it by updating `turtle_schema.json` to point to the new code.
+
+## 7. Maintenance
+
+*   **Installer Updates**: The `install.lua` file contains a hardcoded archive of the project files. **Whenever you modify any file in the `turtleos/` directory or `boot.lua`, you MUST update the corresponding entry in `install.lua`.** This ensures that users running the installer get the latest version of the code.
+
