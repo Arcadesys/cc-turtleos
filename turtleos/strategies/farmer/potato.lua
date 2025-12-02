@@ -2,9 +2,7 @@
 local logger = require("turtleos.lib.logger")
 
 -- Ensure movement API is loaded
-if not movement then
-    os.loadAPI("turtleos/apis/movement.lua")
-end
+local movement = require("turtleos.apis.movement")
 
 local potato = {}
 local initialized = false

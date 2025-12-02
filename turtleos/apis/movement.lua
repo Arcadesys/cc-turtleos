@@ -1,7 +1,8 @@
 -- turtleos/apis/movement.lua
 -- Movement State Machine API for ComputerCraft Turtles
--- Load with: os.loadAPI("turtleos/apis/movement.lua")
--- Access via: movement.forward(), movement.getPosition(), etc.
+-- Access via: local movement = require("turtleos.apis.movement")
+
+local movement = {}
 
 -- State tracking
 local position = {x = 0, y = 0, z = 0}
@@ -29,34 +30,34 @@ local DIRECTIONS = {
 }
 
 -- Get current position
-function getPosition()
+function movement.getPosition()
     return {x = position.x, y = position.y, z = position.z}
 end
 
 -- Get current facing direction
-function getFacing()
+function movement.getFacing()
     return facing
 end
 
 -- Get current state
-function getState()
+function movement.getState()
     return currentState
 end
 
 -- Set position (useful for calibration)
-function setPosition(x, y, z)
+function movement.setPosition(x, y, z)
     position.x = x or position.x
     position.y = y or position.y
     position.z = z or position.z
 end
 
 -- Set facing direction
-function setFacing(dir)
+function movement.setFacing(dir)
     facing = dir % 4
 end
 
 -- Check fuel level
-function checkFuel()
+function movement.checkFuel()
     local level = turtle.getFuelLevel()
     if level == "unlimited" then
         return true
@@ -90,7 +91,7 @@ function checkFuel()
 end
 
 -- Try to refuel from inventory
-function refuel(amount)
+function movement.refuel(amount)
     amount = amount or 64
     for slot = 1, 16 do
         if turtle.getItemCount(slot) > 0 then
@@ -104,7 +105,7 @@ function refuel(amount)
 end
 
 -- Turn right
-function turnRight()
+function movement.turnRight()
     if turtle.turnRight() then
         facing = (facing + 1) % 4
         return true
@@ -113,7 +114,7 @@ function turnRight()
 end
 
 -- Turn left
-function turnLeft()
+function movement.turnLeft()
     if turtle.turnLeft() then
         facing = (facing - 1) % 4
         return true
@@ -122,36 +123,43 @@ function turnLeft()
 end
 
 -- Turn around
-function turnAround()
-    turnRight()
-    turnRight()
+function movement.turnAround()
+    movement.turnRight()
+    movement.turnRight()
     return true
 end
 
 -- Face a specific direction (0-3)
-function face(dir)
+function movement.face(dir)
     dir = dir % 4
     while facing ~= dir do
-        turnRight()
+        movement.turnRight()
     end
     return true
 end
 
 -- Forward movement with retry logic
-function forward(force)
-    if not checkFuel() then
+function movement.forward(force)
+    if not movement.checkFuel() then
+        print("[MOVEMENT] Failed: low fuel")
         return false, "low_fuel"
     end
     
     currentState = STATE.MOVING
     local attempts = 0
     
+    print(string.format("[MOVEMENT] Attempting forward (facing=%d, pos=%d,%d,%d)", facing, position.x, position.y, position.z))
+    
     while attempts < moveAttempts do
-        if turtle.forward() then
+        local result = turtle.forward()
+        print(string.format("[MOVEMENT] turtle.forward() attempt %d: %s", attempts + 1, tostring(result)))
+        
+        if result then
             -- Update position
             local dir = DIRECTIONS[facing]
             position.x = position.x + dir.x
             position.z = position.z + dir.z
+            print(string.format("[MOVEMENT] Success! New pos=%d,%d,%d", position.x, position.y, position.z))
             currentState = STATE.IDLE
             return true
         end
@@ -161,25 +169,30 @@ function forward(force)
         if force and attempts < moveAttempts then
             -- Try to clear the way
             if turtle.detect() then
+                print("[MOVEMENT] Block detected, digging...")
                 currentState = STATE.BLOCKED
                 turtle.dig()
                 sleep(0.5)
             elseif turtle.attack() then
+                print("[MOVEMENT] Entity detected, attacking...")
                 currentState = STATE.ATTACKING
                 sleep(0.5)
+            else
+                print("[MOVEMENT] Path blocked but nothing to clear")
             end
         else
             sleep(0.2)
         end
     end
     
+    print("[MOVEMENT] Failed after all attempts")
     currentState = STATE.BLOCKED
     return false, "blocked"
 end
 
 -- Backward movement
-function back()
-    if not checkFuel() then
+function movement.back()
+    if not movement.checkFuel() then
         return false, "low_fuel"
     end
     
@@ -199,8 +212,8 @@ function back()
 end
 
 -- Up movement with retry logic
-function up(force)
-    if not checkFuel() then
+function movement.up(force)
+    if not movement.checkFuel() then
         return false, "low_fuel"
     end
     
@@ -235,8 +248,8 @@ function up(force)
 end
 
 -- Down movement with retry logic
-function down(force)
-    if not checkFuel() then
+function movement.down(force)
+    if not movement.checkFuel() then
         return false, "low_fuel"
     end
     
@@ -271,18 +284,18 @@ function down(force)
 end
 
 -- Go to a specific position (simple pathfinding)
-function gotoPosition(targetX, targetY, targetZ, force)
+function movement.gotoPosition(targetX, targetY, targetZ, force)
     force = force or false
     
     -- Move in X axis
     while position.x ~= targetX do
         if position.x < targetX then
-            face(1)  -- East
+            movement.face(1)  -- East
         else
-            face(3)  -- West
+            movement.face(3)  -- West
         end
         
-        local success, err = forward(force)
+        local success, err = movement.forward(force)
         if not success then
             return false, err
         end
@@ -291,12 +304,12 @@ function gotoPosition(targetX, targetY, targetZ, force)
     -- Move in Z axis
     while position.z ~= targetZ do
         if position.z < targetZ then
-            face(0)  -- North
+            movement.face(0)  -- North
         else
-            face(2)  -- South
+            movement.face(2)  -- South
         end
         
-        local success, err = forward(force)
+        local success, err = movement.forward(force)
         if not success then
             return false, err
         end
@@ -306,9 +319,9 @@ function gotoPosition(targetX, targetY, targetZ, force)
     while position.y ~= targetY do
         local success, err
         if position.y < targetY then
-            success, err = up(force)
+            success, err = movement.up(force)
         else
-            success, err = down(force)
+            success, err = movement.down(force)
         end
         
         if not success then
@@ -320,12 +333,12 @@ function gotoPosition(targetX, targetY, targetZ, force)
 end
 
 -- Return to origin (0, 0, 0)
-function home(force)
-    return gotoPosition(0, 0, 0, force)
+function movement.home(force)
+    return movement.gotoPosition(0, 0, 0, force)
 end
 
 -- Get distance to a position
-function distanceTo(x, y, z)
+function movement.distanceTo(x, y, z)
     local dx = math.abs(position.x - x)
     local dy = math.abs(position.y - y)
     local dz = math.abs(position.z - z)
@@ -333,7 +346,7 @@ function distanceTo(x, y, z)
 end
 
 -- Configure movement parameters
-function configure(config)
+function movement.configure(config)
     if config.moveAttempts then
         moveAttempts = config.moveAttempts
     end
@@ -343,14 +356,14 @@ function configure(config)
 end
 
 -- Reset position and facing
-function reset()
+function movement.reset()
     position = {x = 0, y = 0, z = 0}
     facing = 0
     currentState = STATE.IDLE
 end
 
 -- Save state to file
-function saveState(filename)
+function movement.saveState(filename)
     filename = filename or "movement_state.txt"
     local file = fs.open(filename, "w")
     if file then
@@ -365,7 +378,7 @@ function saveState(filename)
 end
 
 -- Load state from file
-function loadState(filename)
+function movement.loadState(filename)
     filename = filename or "movement_state.txt"
     if fs.exists(filename) then
         local file = fs.open(filename, "r")
@@ -381,3 +394,5 @@ function loadState(filename)
     end
     return false
 end
+
+return movement
