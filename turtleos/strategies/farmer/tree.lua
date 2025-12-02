@@ -8,9 +8,9 @@ local tree = {}
 
 -- Configuration
 local treeLocations = {
-    {x=0, z=0}, {x=0, z=2}, {x=0, z=4},
-    {x=2, z=0}, {x=2, z=2}, {x=2, z=4},
-    {x=4, z=0}, {x=4, z=2}, {x=4, z=4}
+    {x=1, z=1}, {x=1, z=3}, {x=1, z=5},
+    {x=3, z=1}, {x=3, z=3}, {x=3, z=5},
+    {x=5, z=1}, {x=5, z=3}, {x=5, z=5}
 }
 local currentTreeIndex = 1
 

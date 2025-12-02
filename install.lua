@@ -866,6 +866,17 @@ function potato.execute()
         else
             logger.warn("No potatoes to plant!")
         end
+    elseif cropData.name == "minecraft:dirt" or cropData.name == "minecraft:grass_block" then
+        logger.info("Tilling ground...")
+        if turtle.digDown() then
+            logger.info("Tilled ground.")
+            -- Attempt to plant immediately after tilling
+            if selectItem("minecraft:potato") then
+                turtle.placeDown()
+            end
+        else
+            logger.warn("Failed to till ground.")
+        end
     end
 
     -- 4. Move forward
@@ -897,9 +908,9 @@ local tree = {}
 
 -- Configuration
 local treeLocations = {
-    {x=0, z=0}, {x=0, z=2}, {x=0, z=4},
-    {x=2, z=0}, {x=2, z=2}, {x=2, z=4},
-    {x=4, z=0}, {x=4, z=2}, {x=4, z=4}
+    {x=1, z=1}, {x=1, z=3}, {x=1, z=5},
+    {x=3, z=1}, {x=3, z=3}, {x=3, z=5},
+    {x=5, z=1}, {x=5, z=3}, {x=5, z=5}
 }
 local currentTreeIndex = 1
 

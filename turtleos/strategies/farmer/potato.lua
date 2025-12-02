@@ -102,6 +102,17 @@ function potato.execute()
         else
             logger.warn("No potatoes to plant!")
         end
+    elseif cropData.name == "minecraft:dirt" or cropData.name == "minecraft:grass_block" then
+        logger.info("Tilling ground...")
+        if turtle.digDown() then
+            logger.info("Tilled ground.")
+            -- Attempt to plant immediately after tilling
+            if selectItem("minecraft:potato") then
+                turtle.placeDown()
+            end
+        else
+            logger.warn("Failed to till ground.")
+        end
     end
 
     -- 4. Move forward
