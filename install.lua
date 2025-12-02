@@ -601,23 +601,38 @@ function core.init()
         end
 
         if shouldEdit then
-            print("Select Farm Type:")
-            print("1. Potato")
-            print("2. Tree")
-            write("> ")
-            local input = read()
-            if input == "1" then
-                schemaData.strategy = "potato"
-                print("Strategy set to: potato")
-            elseif input == "2" then
-                schemaData.strategy = "tree"
-                print("Strategy set to: tree")
+            local strategies = {}
+            local strategyDir = "turtleos/strategies/farmer"
+            if fs.exists(strategyDir) and fs.isDir(strategyDir) then
+                local files = fs.list(strategyDir)
+                for _, file in ipairs(files) do
+                    if file:sub(-4) == ".lua" then
+                        table.insert(strategies, file:sub(1, -5))
+                    end
+                end
             end
-            
-            -- Save changes
-            local file = fs.open("turtle_schema.json", "w")
-            file.write(textutils.serializeJSON(schemaData))
-            file.close()
+
+            if #strategies > 0 then
+                print("Select Farm Type:")
+                for i, strat in ipairs(strategies) do
+                    print(i .. ". " .. strat)
+                end
+                write("> ")
+                local input = tonumber(read())
+                if input and strategies[input] then
+                    schemaData.strategy = strategies[input]
+                    print("Strategy set to: " .. strategies[input])
+                    
+                    -- Save changes
+                    local file = fs.open("turtle_schema.json", "w")
+                    file.write(textutils.serializeJSON(schemaData))
+                    file.close()
+                else
+                    print("Invalid selection.")
+                end
+            else
+                print("No strategies found in " .. strategyDir)
+            end
         end
     end
 
