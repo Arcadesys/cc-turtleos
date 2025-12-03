@@ -779,17 +779,30 @@ return miner
 ]],
     ["turtleos/strategies/farmer/potato.lua"] = [[-- turtleos/strategies/farmer/potato.lua
 local logger = require("turtleos.lib.logger")
-
--- Ensure movement API is loaded
 local movement = require("turtleos.apis.movement")
 
 local potato = {}
 local initialized = false
 
+-- Configuration
+local FIELD_SIZE = 9
+
 local function selectItem(name)
     for i = 1, 16 do
         local item = turtle.getItemDetail(i)
         if item and item.name == name then
+            turtle.select(i)
+            return true
+        end
+    end
+    return false
+end
+
+local function selectHoe()
+    -- Try to find any hoe
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item and item.name:find("hoe") then
             turtle.select(i)
             return true
         end
@@ -808,106 +821,137 @@ local function hasSpace()
     return false
 end
 
-function potato.execute()
-    -- 1. Initialization: Move to start offset (1, 1)
-    if not initialized then
-        logger.info("Initializing Farmer Strategy v2.1...")
-        
-        -- Ensure we are hovering (Y=1) to avoid breaking crops or getting blocked
-        if movement.getPosition().y < 1 then
-             logger.info("Moving to hover height...")
-             if not movement.up() then
-                 logger.error("Failed to move up!")
-                 return
-             end
+local function farmBlock()
+    local hasBlock, data = turtle.inspectDown()
+    
+    -- 1. Handle existing crop
+    if hasBlock and data.name == "minecraft:potatoes" then
+        if data.state.age == 7 then
+            if hasSpace() then
+                logger.info("Harvesting...")
+                selectItem("minecraft:potato")
+                turtle.digDown()
+                if selectItem("minecraft:potato") then
+                    turtle.placeDown()
+                end
+            else
+                logger.warn("Inventory full!")
+            end
         end
-
-        -- Move to offset (1, 1) relative to origin
-        -- Target: X=1, Z=1, Y=1
-        logger.info("Moving to start offset (1, 1)...")
-        local success, err = movement.gotoPosition(1, 1, 1)
-        if not success then
-            logger.error("Failed to reach start position: " .. (err or "unknown"))
-        else
-            logger.info("Reached start position.")
-        end
-        
-        initialized = true
         return
     end
 
-    logger.info("Farming potatoes...")
+    -- 2. Handle Air (Potential planting spot)
+    if not hasBlock then
+        -- We are at y=1. Air is at y=0.
+        -- Check what is at y=-1.
+        if movement.down() then
+            -- Now at y=0.
+            local hasSoil, soilData = turtle.inspectDown()
+            local needsTilling = false
+            
+            if hasSoil then
+                if soilData.name == "minecraft:dirt" or soilData.name == "minecraft:grass_block" then
+                    needsTilling = true
+                elseif soilData.name == "minecraft:farmland" then
+                    -- Good to plant
+                end
+            end
+            
+            if needsTilling then
+                logger.info("Tilling soil...")
+                if selectHoe() then
+                    turtle.placeDown()
+                end
+            end
+            
+            movement.up()
+            -- Now back at y=1.
+            
+            -- Plant if we have soil/farmland below
+            if hasSoil and (needsTilling or soilData.name == "minecraft:farmland") then
+                 if selectItem("minecraft:potato") then
+                    turtle.placeDown()
+                end
+            end
+        end
+        return
+    end
+    
+    -- 3. Handle Dirt/Grass at y=0 (High ground)
+    if hasBlock and (data.name == "minecraft:dirt" or data.name == "minecraft:grass_block") then
+        logger.info("Tilling high block...")
+        if selectHoe() then
+            turtle.placeDown()
+        end
+        if selectItem("minecraft:potato") then
+            turtle.placeDown()
+        end
+    end
+end
 
-    -- 2. Check fuel
+function potato.execute()
+    if not initialized then
+        logger.info("Initializing Potato Farm Strategy (9x9 Grid)...")
+        
+        -- Ensure hovering
+        if movement.getPosition().y < 1 then
+            movement.up(true)
+        end
+
+        -- Go to start (1, 1)
+        movement.gotoPosition(1, 1, 1)
+        movement.face(1) -- Face East
+        
+        initialized = true
+    end
+
+    logger.info("Starting farm cycle...")
+
+    -- Check fuel
     if turtle.getFuelLevel() < 100 then
-        logger.warn("Low fuel! Attempting to refuel...")
         movement.refuel()
     end
 
-    -- 3. Farm the block below
-    local hasCrop, cropData = turtle.inspectDown()
+    -- Traverse 9x9 grid
+    -- We assume we are at (1,1) or close to it.
+    -- We will iterate through all positions.
     
-    if hasCrop and cropData.name == "minecraft:potatoes" then
-        if cropData.state.age == 7 then
-            if hasSpace() then
-                logger.info("Harvesting potato below...")
-                
-                -- Select potato to ensure drops stack
-                selectItem("minecraft:potato")
-                
-                turtle.digDown()
-                turtle.suckDown() -- Collect extra drops
-                
-                -- Select potato for planting
-                if selectItem("minecraft:potato") then
-                    turtle.placeDown() -- Replant
-                else
-                    logger.warn("No potatoes to replant!")
-                end
-            else
-                logger.warn("Inventory full! Skipping harvest.")
-            end
+    for z = 1, FIELD_SIZE do
+        -- Determine X direction for this row (Snake pattern)
+        local startX, endX, stepX
+        if z % 2 == 1 then
+            startX, endX, stepX = 1, FIELD_SIZE, 1
+            movement.face(1) -- Face East
         else
-            -- logger.info("Waiting for potato to grow...")
+            startX, endX, stepX = FIELD_SIZE, 1, -1
+            movement.face(3) -- Face West
         end
-    elseif not hasCrop then
-        -- Air below (or we just dug it). Plant.
-        logger.info("Planting potato below...")
-        
-        if selectItem("minecraft:potato") then
-            if not turtle.placeDown() then
-                 logger.warn("Failed to plant (Blocked?)")
+
+        for x = startX, endX, stepX do
+            -- Go to position (should be adjacent)
+            movement.gotoPosition(x, 1, z)
+            
+            -- Farm the block
+            farmBlock()
+            
+            -- Inventory check
+            if turtle.getItemCount(16) > 0 then
+                -- If last slot is full, maybe we are full?
+                -- Simple check: if full, go home and deposit?
+                -- For now, just warn.
             end
-        else
-            logger.warn("No potatoes to plant!")
-        end
-    elseif cropData.name == "minecraft:dirt" or cropData.name == "minecraft:grass_block" then
-        logger.info("Tilling ground...")
-        if turtle.digDown() then
-            logger.info("Tilled ground.")
-            -- Attempt to plant immediately after tilling
-            if selectItem("minecraft:potato") then
-                turtle.placeDown()
-            end
-        else
-            logger.warn("Failed to till ground.")
         end
     end
 
-    -- 4. Move forward
-    if not movement.forward() then
-        logger.warn("Movement blocked! Attempting to find path...")
-        
-        -- Try turning right until we can move
-        for i = 1, 4 do
-            movement.turnRight()
-            if movement.forward() then
-                logger.info("Path found.")
-                return
-            end
-        end
-        
-        logger.warn("Trapped! Could not move in any direction.")
+    logger.info("Farm cycle complete. Returning to start.")
+    movement.gotoPosition(1, 1, 1)
+    movement.face(1)
+    
+    -- Sleep is handled by farmer.lua loop, but we can sleep here too if we want a longer delay between cycles.
+    logger.info("Waiting for crops to grow...")
+    for i=1, 60 do
+        sleep(1)
     end
 end
 

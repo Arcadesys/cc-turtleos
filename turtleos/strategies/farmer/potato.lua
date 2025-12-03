@@ -45,24 +45,13 @@ end
 local function farmBlock()
     local hasBlock, data = turtle.inspectDown()
     
-    if not hasBlock then
-        -- Air? Maybe we can plant if there's farmland below? 
-        -- But inspectDown checks the block we interact with.
-        -- If it's air, we might have dug it up.
-        -- Try to plant anyway if we have potatoes?
-        -- Usually air means we can't plant unless we place dirt first.
-        return
-    end
-
-    if data.name == "minecraft:potatoes" then
+    -- 1. Handle existing crop
+    if hasBlock and data.name == "minecraft:potatoes" then
         if data.state.age == 7 then
             if hasSpace() then
                 logger.info("Harvesting...")
-                selectItem("minecraft:potato") -- Select potato for drops
+                selectItem("minecraft:potato")
                 turtle.digDown()
-                -- turtle.suckDown() -- Auto-pickup usually works, but suck ensures we get it
-                
-                -- Replant
                 if selectItem("minecraft:potato") then
                     turtle.placeDown()
                 end
@@ -70,24 +59,54 @@ local function farmBlock()
                 logger.warn("Inventory full!")
             end
         end
-    elseif data.name == "minecraft:dirt" or data.name == "minecraft:grass_block" then
-        logger.info("Tilling...")
-        if selectHoe() then
-            turtle.placeDown() -- Till with hoe
-            -- Now plant
-            if selectItem("minecraft:potato") then
-                turtle.placeDown()
+        return
+    end
+
+    -- 2. Handle Air (Potential planting spot)
+    if not hasBlock then
+        -- We are at y=1. Air is at y=0.
+        -- Check what is at y=-1.
+        if movement.down() then
+            -- Now at y=0.
+            local hasSoil, soilData = turtle.inspectDown()
+            local needsTilling = false
+            
+            if hasSoil then
+                if soilData.name == "minecraft:dirt" or soilData.name == "minecraft:grass_block" then
+                    needsTilling = true
+                elseif soilData.name == "minecraft:farmland" then
+                    -- Good to plant
+                end
             end
-        else
-            logger.error("No hoe found!")
+            
+            if needsTilling then
+                logger.info("Tilling soil...")
+                if selectHoe() then
+                    turtle.placeDown()
+                end
+            end
+            
+            movement.up()
+            -- Now back at y=1.
+            
+            -- Plant if we have soil/farmland below
+            if hasSoil and (needsTilling or soilData.name == "minecraft:farmland") then
+                 if selectItem("minecraft:potato") then
+                    turtle.placeDown()
+                end
+            end
         end
-    elseif data.name == "minecraft:farmland" then
-        -- Just plant
+        return
+    end
+    
+    -- 3. Handle Dirt/Grass at y=0 (High ground)
+    if hasBlock and (data.name == "minecraft:dirt" or data.name == "minecraft:grass_block") then
+        logger.info("Tilling high block...")
+        if selectHoe() then
+            turtle.placeDown()
+        end
         if selectItem("minecraft:potato") then
-            local success = turtle.placeDown()
-            if not success then
-                -- Maybe blocked by entity or something?
-            end
+            turtle.placeDown()
         end
     end
 end
