@@ -65,47 +65,31 @@ local function farmBlock()
     -- 2. Handle Air (Potential planting spot)
     if not hasBlock then
         -- We are at y=1. Air is at y=0.
-        -- Check what is at y=-1.
-        if movement.down() then
-            -- Now at y=0.
-            local hasSoil, soilData = turtle.inspectDown()
-            local needsTilling = false
-            
-            if hasSoil then
-                logger.info("Inspecting soil: " .. soilData.name)
-                if soilData.name == "minecraft:dirt" or soilData.name == "minecraft:grass_block" or soilData.name == "minecraft:grass" then
-                    needsTilling = true
-                elseif soilData.name == "minecraft:farmland" then
-                    -- Good to plant
-                else
-                    logger.warn("Unknown soil type: " .. soilData.name)
-                end
-            else
-                logger.warn("No soil detected below!")
-            end
-            
-            if needsTilling then
-                logger.info("Tilling soil...")
-                if selectHoe() then
-                    local success, err = turtle.placeDown()
-                    if not success then
-                        logger.error("Failed to till: " .. (err or "unknown"))
-                    end
-                else
-                    logger.error("No hoe found to till soil!")
-                end
-            end
-            
-            movement.up()
-            -- Now back at y=1.
-            
-            -- Plant if we have soil/farmland below
-            if hasSoil and (needsTilling or soilData.name == "minecraft:farmland") then
-                 if selectItem("minecraft:potato") then
-                    turtle.placeDown()
-                end
+        -- We cannot reach y=-1 (Soil) without moving down.
+        -- BUT moving down causes trampling of farmland.
+        
+        -- Attempt to plant anyway (in case it is already farmland)
+        if selectItem("minecraft:potato") then
+            if turtle.placeDown() then
+                logger.info("Planted potato from height.")
+                return
             end
         end
+        
+        -- If we are here, we couldn't plant. Likely dirt or grass below.
+        -- Try to till from height (unlikely to work, but safe)
+        if selectHoe() then
+            if turtle.placeDown() then
+                logger.info("Tilled from height.")
+                -- Try planting again
+                if selectItem("minecraft:potato") then
+                    turtle.placeDown()
+                end
+                return
+            end
+        end
+        
+        logger.warn("Cannot till/plant: Ground too low or blocked. Skipping to avoid trampling.")
         return
     end
     
@@ -121,9 +105,69 @@ local function farmBlock()
     end
 end
 
+local function scanAndInteractWithChest()
+    logger.info("Scanning for chest...")
+    local startFacing = movement.getFacing()
+    
+    for i = 0, 3 do
+        movement.face(i)
+        local hasBlock, data = turtle.inspect()
+        if hasBlock and (data.name:find("chest") or data.name:find("barrel")) then
+            logger.info("Found chest at direction " .. i)
+            
+            -- Drop off potatoes (keep 5)
+            for slot = 1, 16 do
+                local item = turtle.getItemDetail(slot)
+                if item and item.name == "minecraft:potato" then
+                    if item.count > 5 then
+                        turtle.select(slot)
+                        turtle.drop(item.count - 5)
+                    end
+                end
+            end
+            
+            -- Refuel
+            logger.info("Refueling from chest...")
+            while turtle.getFuelLevel() < 5000 do
+                local emptySlot = -1
+                for s=1, 16 do
+                    if turtle.getItemCount(s) == 0 then
+                        emptySlot = s
+                        break
+                    end
+                end
+                
+                if emptySlot == -1 then
+                    break
+                end
+                
+                turtle.select(emptySlot)
+                if turtle.suck() then
+                    if turtle.refuel(0) then
+                        turtle.refuel()
+                    else
+                        turtle.drop() -- Put back non-fuel
+                        break -- Stop if we hit non-fuel
+                    end
+                else
+                    break -- Chest empty
+                end
+            end
+            
+            return true
+        end
+    end
+    
+    logger.warn("No chest found nearby.")
+    movement.face(startFacing)
+    return false
+end
+
 function potato.execute()
     if not initialized then
         logger.info("Initializing Potato Farm Strategy (9x9 Grid)...")
+        
+        scanAndInteractWithChest()
         
         -- Ensure hovering
         if movement.getPosition().y < 1 then
