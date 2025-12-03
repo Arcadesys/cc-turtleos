@@ -52,6 +52,7 @@ local function farmBlock()
                 logger.info("Harvesting...")
                 selectItem("minecraft:potato")
                 turtle.digDown()
+                turtle.suckDown()
                 if selectItem("minecraft:potato") then
                     turtle.placeDown()
                 end
