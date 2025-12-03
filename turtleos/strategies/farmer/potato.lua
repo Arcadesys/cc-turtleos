@@ -72,17 +72,27 @@ local function farmBlock()
             local needsTilling = false
             
             if hasSoil then
-                if soilData.name == "minecraft:dirt" or soilData.name == "minecraft:grass_block" then
+                logger.info("Inspecting soil: " .. soilData.name)
+                if soilData.name == "minecraft:dirt" or soilData.name == "minecraft:grass_block" or soilData.name == "minecraft:grass" then
                     needsTilling = true
                 elseif soilData.name == "minecraft:farmland" then
                     -- Good to plant
+                else
+                    logger.warn("Unknown soil type: " .. soilData.name)
                 end
+            else
+                logger.warn("No soil detected below!")
             end
             
             if needsTilling then
                 logger.info("Tilling soil...")
                 if selectHoe() then
-                    turtle.placeDown()
+                    local success, err = turtle.placeDown()
+                    if not success then
+                        logger.error("Failed to till: " .. (err or "unknown"))
+                    end
+                else
+                    logger.error("No hoe found to till soil!")
                 end
             end
             
@@ -100,8 +110,8 @@ local function farmBlock()
     end
     
     -- 3. Handle Dirt/Grass at y=0 (High ground)
-    if hasBlock and (data.name == "minecraft:dirt" or data.name == "minecraft:grass_block") then
-        logger.info("Tilling high block...")
+    if hasBlock and (data.name == "minecraft:dirt" or data.name == "minecraft:grass_block" or data.name == "minecraft:grass") then
+        logger.info("Tilling high block (" .. data.name .. ")...")
         if selectHoe() then
             turtle.placeDown()
         end
