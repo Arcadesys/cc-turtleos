@@ -56,6 +56,16 @@ local function cleanupInventory()
 end
 
 -- Atomic Operations
+local function selectEmptySlot()
+    for i = 1, 16 do
+        if turtle.getItemCount(i) == 0 then
+            turtle.select(i)
+            return true
+        end
+    end
+    return false
+end
+
 -- Atomic Operations
 local operations = {}
 
@@ -78,10 +88,21 @@ operations.replant = function()
 end
 
 operations.till = function()
+    -- Priority 1: Use Hoe in Inventory
     if selectHoe() then
         return turtle.placeDown()
     end
-    logger.warn("No hoe found")
+    
+    -- Priority 2: Use Equipped Hoe (requires empty slot selected)
+    if selectEmptySlot() then
+        if turtle.placeDown() then
+            return true
+        end
+        -- Only warn if both failed, but hard to distinguish "failed to till" from "no tool".
+        -- Assuming if placeDown fails with empty slot, either no tool or invalid target.
+    end
+    
+    logger.warn("Till failed (No hoe in inventory/equipped, or invalid target)")
     return false
 end
 
