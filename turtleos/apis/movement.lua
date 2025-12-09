@@ -49,11 +49,13 @@ function movement.setPosition(x, y, z)
     position.x = x or position.x
     position.y = y or position.y
     position.z = z or position.z
+    movement.saveState()
 end
 
 -- Set facing direction
 function movement.setFacing(dir)
     facing = dir % 4
+    movement.saveState()
 end
 
 -- Check fuel level
@@ -108,6 +110,7 @@ end
 function movement.turnRight()
     if turtle.turnRight() then
         facing = (facing + 1) % 4
+        movement.saveState()
         return true
     end
     return false
@@ -117,6 +120,7 @@ end
 function movement.turnLeft()
     if turtle.turnLeft() then
         facing = (facing - 1) % 4
+        movement.saveState()
         return true
     end
     return false
@@ -161,6 +165,7 @@ function movement.forward(force)
             position.z = position.z + dir.z
             print(string.format("[MOVEMENT] Success! New pos=%d,%d,%d", position.x, position.y, position.z))
             currentState = STATE.IDLE
+            movement.saveState()
             return true
         end
         
@@ -204,6 +209,7 @@ function movement.back()
         position.x = position.x - dir.x
         position.z = position.z - dir.z
         currentState = STATE.IDLE
+        movement.saveState()
         return true
     end
     
@@ -224,6 +230,7 @@ function movement.up(force)
         if turtle.up() then
             position.y = position.y + 1
             currentState = STATE.IDLE
+            movement.saveState()
             return true
         end
         
@@ -260,6 +267,7 @@ function movement.down(force)
         if turtle.down() then
             position.y = position.y - 1
             currentState = STATE.IDLE
+            movement.saveState()
             return true
         end
         

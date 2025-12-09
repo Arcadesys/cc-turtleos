@@ -25,7 +25,7 @@ function farmer.run(schema)
     
     while true do
         if strategy.execute then
-            strategy.execute()
+            strategy.execute(schema)
         else
             logger.error("Strategy missing 'execute' function")
             break

@@ -8,10 +8,10 @@ local tree = {}
 
 -- Configuration
 local treeLocations = {
-    {x=1, z=1}, {x=1, z=3}, {x=1, z=5}, {x=1, z=7},
-    {x=3, z=1}, {x=3, z=3}, {x=3, z=5}, {x=3, z=7},
-    {x=5, z=1}, {x=5, z=3}, {x=5, z=5}, {x=5, z=7},
-    {x=7, z=1}, {x=7, z=3}, {x=7, z=5}, {x=7, z=7}
+    {x=2, z=1}, {x=2, z=3}, {x=2, z=5}, {x=2, z=7},
+    {x=4, z=1}, {x=4, z=3}, {x=4, z=5}, {x=4, z=7},
+    {x=6, z=1}, {x=6, z=3}, {x=6, z=5}, {x=6, z=7},
+    {x=8, z=1}, {x=8, z=3}, {x=8, z=5}, {x=8, z=7}
 }
 local currentTreeIndex = 1
 
@@ -131,21 +131,23 @@ local function safeGoto(targetX, targetZ)
     
     -- If we are changing columns (X), move to safe Z zone first to avoid hitting trees
     if math.abs(current.x - targetX) > 0.1 then
-        -- Move to Z = -2 (assumed safe aisle connector)
-        local success, err = movement.gotoPosition(current.x, 0, -2)
+        -- Move to Z = 9 (Back of the farm, assumed clear aisle)
+        -- We choose 9 because trees are at 1,3,5,7. 
+        -- Also avoid Z<1 to respect "offset 1,1" rule from user.
+        local success, err = movement.gotoPosition(current.x, 0, 9, true)
         if not success then
             logger.error("Failed to move to safe zone: " .. (err or "unknown"))
             return false
         end
         
-        success, err = movement.gotoPosition(targetX, 0, -2)
+        success, err = movement.gotoPosition(targetX, 0, 9, true)
         if not success then
             logger.error("Failed to move to target column: " .. (err or "unknown"))
             return false
         end
     end
     
-    local success, err = movement.gotoPosition(targetX, 0, targetZ)
+    local success, err = movement.gotoPosition(targetX, 0, targetZ, true)
     if not success then
         logger.error("Failed to move to target tree: " .. (err or "unknown"))
         return false
@@ -154,12 +156,37 @@ local function safeGoto(targetX, targetZ)
     return true
 end
 
+local STATE_FILE = "tree_state.txt"
+
+local function saveProgress(index)
+    local file = fs.open(STATE_FILE, "w")
+    if file then
+        file.write(tostring(index))
+        file.close()
+    end
+end
+
+local function loadProgress()
+    if fs.exists(STATE_FILE) then
+        local file = fs.open(STATE_FILE, "r")
+        if file then
+            local data = file.readAll()
+            file.close()
+            return tonumber(data) or 1
+        end
+    end
+    return 1
+end
+
 function tree.execute()
     -- Debug: Check if turtle API exists
     if not turtle then
         logger.error("Turtle API not available! Are you running this on a turtle?")
         return
     end
+    
+    -- Load movement state
+    movement.loadState()
     
     -- Check fuel
     local fuelLevel = turtle.getFuelLevel()
@@ -170,6 +197,10 @@ function tree.execute()
         movement.refuel()
         logger.info("New fuel level: " .. turtle.getFuelLevel())
     end
+
+    -- Load progress
+    currentTreeIndex = loadProgress()
+    logger.info("Resuming from tree index " .. currentTreeIndex)
 
     -- Get current tree target
     local targetTree = treeLocations[currentTreeIndex]
@@ -184,8 +215,12 @@ function tree.execute()
         return
     end
     
+    -- Save position after successful move
+    movement.saveState()
+    
     -- Face East (towards the tree at x+1)
     movement.face(1)
+    movement.saveState()
 
     local hasBlock, data = turtle.inspect()
     
@@ -238,6 +273,9 @@ function tree.execute()
         logger.info("Cycle complete. Restarting...")
         sleep(5) -- Wait a bit before restarting the cycle
     end
+    
+    -- Save progress for next run
+    saveProgress(currentTreeIndex)
 end
 
 return tree
