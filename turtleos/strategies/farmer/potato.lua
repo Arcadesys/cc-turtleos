@@ -56,41 +56,72 @@ local function cleanupInventory()
 end
 
 -- Atomic Operations
-local operations = {
-    harvest = function()
+-- Atomic Operations
+local operations = {}
+
+operations.harvest = function()
+    if not hasSpace() then
+        cleanupInventory()
         if not hasSpace() then
-            cleanupInventory()
-            if not hasSpace() then
-                logger.warn("Inventory full, cannot harvest")
-                return false
+            logger.warn("Inventory full, cannot harvest")
+            return false
+        end
+    end
+    turtle.digDown()
+    turtle.suckDown()
+    return true
+end
+
+operations.replant = function()
+    -- Forward to plant
+    return operations.plant()
+end
+
+operations.till = function()
+    if selectHoe() then
+        return turtle.placeDown()
+    end
+    logger.warn("No hoe found")
+    return false
+end
+
+operations.plant = function()
+    if selectItem("minecraft:potato") then
+        if turtle.placeDown() then
+            return true
+        else
+            -- Smart Plant Logic: Failed to plant? Maybe needs tilling.
+            logger.warn("Failed to plant. Attempting to till...")
+            
+            -- Go down to till level
+            if movement.down() then
+                if operations.till() then
+                    logger.info("Tilled successfully.")
+                else
+                    logger.warn("Failed to till.")
+                end
+                
+                -- Go back up
+                if not movement.up() then
+                    logger.error("CRITICAL: Failed to return to flight height!")
+                    return false
+                end
+                
+                -- Retry planting
+                if selectItem("minecraft:potato") and turtle.placeDown() then
+                    logger.info("Retry planting successful.")
+                    return true
+                end
             end
         end
-        turtle.digDown()
-        turtle.suckDown()
-        return true
-    end,
-    
-    plant = function()
-        if selectItem("minecraft:potato") then
-            return turtle.placeDown()
-        end
-        logger.warn("No potatoes to plant")
-        return false
-    end,
-    
-    replant = function()
-        -- Same as plant for now
-        return operations.plant()
-    end,
-    
-    till = function()
-        if selectHoe() then
-            return turtle.placeDown()
-        end
-        logger.warn("No hoe found")
-        return false
     end
-}
+    
+    -- Check if we really have no potatoes
+    if turtle.getItemCount() == 0 then -- naive check, selectItem does better but logging here
+         logger.warn("No potatoes to plant or placement prevented.")
+    end
+    return false
+end
 
 -- Action Executor
 local function executeAction(actionDef)
