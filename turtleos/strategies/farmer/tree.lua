@@ -127,29 +127,52 @@ end
 
 -- Move to a specific standing position safely
 local function safeGoto(targetX, targetZ)
+    local SAFE_HEIGHT = 2 -- Fly over chests/ground obstacles
     local current = movement.getPosition()
     
-    -- If we are changing columns (X), move to safe Z zone first to avoid hitting trees
+    -- Function to ensure height
+    local function ensureHeight(h)
+        local pos = movement.getPosition()
+         -- Go Up
+        while pos.y < h do
+            if not movement.up(true) then return false end
+            pos = movement.getPosition()
+        end
+        -- Go Down (only if we need to go lower, but here we just want AT LEAST h)
+        return true
+    end
+
+    -- 1. Ascend to safe height
+    if not ensureHeight(SAFE_HEIGHT) then
+        logger.error("Failed to ascend to safe height")
+        return false
+    end
+    
+    -- 2. Traverse logic
+    -- If changing columns, use the aisle at Z=9
     if math.abs(current.x - targetX) > 0.1 then
-        -- Move to Z = 9 (Back of the farm, assumed clear aisle)
-        -- We choose 9 because trees are at 1,3,5,7. 
-        -- Also avoid Z<1 to respect "offset 1,1" rule from user.
-        local success, err = movement.gotoPosition(current.x, 0, 9, true)
-        if not success then
-            logger.error("Failed to move to safe zone: " .. (err or "unknown"))
+        -- Move to Z = 9 (Back of the farm) at safe height
+        if not movement.gotoPosition(current.x, SAFE_HEIGHT, 9, true) then
+            logger.error("Failed to move to safe aisle")
             return false
         end
         
-        success, err = movement.gotoPosition(targetX, 0, 9, true)
-        if not success then
-            logger.error("Failed to move to target column: " .. (err or "unknown"))
+        -- Move along aisle to target X
+        if not movement.gotoPosition(targetX, SAFE_HEIGHT, 9, true) then
+            logger.error("Failed to move along safe aisle")
             return false
         end
     end
     
-    local success, err = movement.gotoPosition(targetX, 0, targetZ, true)
-    if not success then
-        logger.error("Failed to move to target tree: " .. (err or "unknown"))
+    -- 3. Move to target tree Z at safe height
+    if not movement.gotoPosition(targetX, SAFE_HEIGHT, targetZ, true) then
+        logger.error("Failed to move to target Z")
+        return false
+    end
+    
+    -- 4. Descend to ground (Target Y=0)
+    if not movement.gotoPosition(targetX, 0, targetZ, true) then
+        logger.error("Failed to descend to tree position")
         return false
     end
     
