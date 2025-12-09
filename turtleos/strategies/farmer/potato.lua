@@ -172,7 +172,11 @@ function potato.execute(schema)
         end
     end
     
-    movement.loadState()
+    -- Enforce start state (User guarantees placement)
+    logger.info("Calibrating position to (1, 1, 1) Facing North")
+    movement.setPosition(1, 1, 1)
+    movement.setFacing(0)
+    movement.saveState()
     
     -- Interpret Plan
     if schema.plan == "fill_farm_space" then
