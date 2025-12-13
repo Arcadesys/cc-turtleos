@@ -74,56 +74,27 @@ function core.init()
     end
 
     logger.info("Loaded schema for: " .. (schemaData.name or "Unknown Turtle"))
-
-    -- Interactive Configuration
-    if schemaData.role == "farmer" then
-        print("Press 'c' to configure strategy (3s)...")
-        local timerId = os.startTimer(3)
-        local shouldEdit = false
-        while true do
-            local event, p1 = os.pullEvent()
-            if event == "timer" and p1 == timerId then
-                break
-            elseif event == "char" and p1 == "c" then
-                shouldEdit = true
-                break
-            end
+    
+    -- Interactive Menu Access
+    print("Press 'm' or 'c' for MENU (3s)...")
+    local timerId = os.startTimer(3)
+    local launchMenu = false
+    while true do
+        local event, p1 = os.pullEvent()
+        if event == "timer" and p1 == timerId then
+            break
+        elseif event == "char" and (p1 == "m" or p1 == "c") then
+            launchMenu = true
+            break
         end
-
-        if shouldEdit then
-            local strategies = {}
-            local strategyDir = "turtleos/strategies/farmer"
-            if fs.exists(strategyDir) and fs.isDir(strategyDir) then
-                local files = fs.list(strategyDir)
-                for _, file in ipairs(files) do
-                    if file:sub(-4) == ".lua" then
-                        table.insert(strategies, file:sub(1, -5))
-                    end
-                end
-            end
-
-            if #strategies > 0 then
-                print("Select Farm Type:")
-                for i, strat in ipairs(strategies) do
-                    print(i .. ". " .. strat)
-                end
-                write("> ")
-                local input = tonumber(read())
-                if input and strategies[input] then
-                    schemaData.strategy = strategies[input]
-                    print("Strategy set to: " .. strategies[input])
-                    
-                    -- Save changes
-                    local file = fs.open("turtle_schema.json", "w")
-                    file.write(textutils.serializeJSON(schemaData))
-                    file.close()
-                else
-                    print("Invalid selection.")
-                end
-            else
-                print("No strategies found in " .. strategyDir)
-            end
-        end
+    end
+    
+    if launchMenu then
+        logger.info("Launching Main Menu...")
+        shell.run("turtleos/menu.lua")
+        -- If menu returns (it loops, but just in case), we verify if we should continue
+        print("Menu exited. Resuming boot sequence in 3s...")
+        sleep(3)
     end
 
     -- Determine role
