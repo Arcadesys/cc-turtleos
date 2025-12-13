@@ -1,68 +1,146 @@
 local strategies_dir = "turtleos/strategies"
 
-local function find_strategies(dir, list)
-    list = list or {}
-    local files = fs.list(dir)
+-- Helper: Get list of roles (directories)
+local function get_roles()
+    local roles = {}
+    local files = fs.list(strategies_dir)
     for _, file in ipairs(files) do
-        local path = fs.combine(dir, file)
-        if fs.isDir(path) then
-            find_strategies(path, list)
-        elseif file:sub(-4) == ".lua" then
-            table.insert(list, path)
+        if fs.isDir(fs.combine(strategies_dir, file)) then
+            table.insert(roles, file)
         end
     end
-    return list
+    table.sort(roles)
+    return roles
 end
 
-local function draw_menu(options, selected)
+-- Helper: Get list of strategies for a role
+local function get_strategies(role)
+    local strats = {}
+    local path = fs.combine(strategies_dir, role)
+    if fs.exists(path) and fs.isDir(path) then
+        local files = fs.list(path)
+        for _, file in ipairs(files) do
+            if file:sub(-4) == ".lua" then
+                table.insert(strats, file:sub(1, -5)) -- Remove .lua
+            end
+        end
+    end
+    table.sort(strats)
+    return strats
+end
+
+local function draw_menu(title, options, selected)
     term.clear()
     term.setCursorPos(1, 1)
-    print("TurtleOS Menu")
-    print("-------------")
+    textutils.slowPrint(title, 50) -- Nice little effect, very fast
+    print(string.rep("-", #title))
     
     local w, h = term.getSize()
     local start_y = 3
     local max_items = h - start_y
     
-    -- Simple scrolling logic could be added here if needed, 
-    -- but for now we'll just show the first N items
-    for i = 1, math.min(#options, max_items) do
-        term.setCursorPos(1, start_y + i - 1)
-        if i == selected then
-            write("> " .. options[i])
-        else
-            write("  " .. options[i])
-        end
+    -- Pagination start index
+    local start_idx = 1
+    if selected > max_items then
+        start_idx = selected - max_items + 1
+    end
+
+    for i = 0, max_items - 1 do
+        local idx = start_idx + i
+        if idx > #options then break end
+        
+        term.setCursorPos(1, start_y + i)
+        local prefix = (idx == selected) and "> " or "  "
+        print(prefix .. options[idx].label)
     end
 end
 
 local function run_menu()
-    local strategies = find_strategies(strategies_dir)
-    if #strategies == 0 then
-        print("No strategies found in " .. strategies_dir)
-        return
-    end
+    local state = "main" -- main, role
+    local current_role = nil
     
-    local selected = 1
+    local main_selected = 1
+    local role_selected = 1
     
     while true do
-        draw_menu(strategies, selected)
+        local options = {}
+        local title = ""
+        local selected_ptr = 1
+        
+        if state == "main" then
+            title = "Start Menu (Select Role)"
+            local roles = get_roles()
+            for _, r in ipairs(roles) do
+                table.insert(options, {label = r:gsub("^%l", string.upper), value = r, type = "role"})
+            end
+            table.insert(options, {label = "Reboot", type = "cmd", action = os.reboot})
+            table.insert(options, {label = "Shutdown", type = "cmd", action = os.shutdown})
+            
+            selected_ptr = main_selected
+            
+        elseif state == "role" then
+            title = "Role: " .. current_role:gsub("^%l", string.upper)
+            local strats = get_strategies(current_role)
+            for _, s in ipairs(strats) do
+                table.insert(options, {label = s, value = s, type = "strat"})
+            end
+            table.insert(options, {label = "< Back", type = "back"})
+            
+            selected_ptr = role_selected
+        end
+        
+        draw_menu(title, options, selected_ptr)
         
         local event, key = os.pullEvent("key")
+        
         if key == keys.up then
-            selected = selected - 1
-            if selected < 1 then selected = #strategies end
+            selected_ptr = selected_ptr - 1
+            if selected_ptr < 1 then selected_ptr = #options end
         elseif key == keys.down then
-            selected = selected + 1
-            if selected > #strategies then selected = 1 end
+            selected_ptr = selected_ptr + 1
+            if selected_ptr > #options then selected_ptr = 1 end
         elseif key == keys.enter then
-            term.clear()
-            term.setCursorPos(1, 1)
-            print("Running " .. strategies[selected] .. "...")
-            shell.run(strategies[selected])
-            print("Press any key to return to menu...")
-            os.pullEvent("key")
+            local action = options[selected_ptr]
+            
+            if state == "main" then
+                main_selected = selected_ptr
+                if action.type == "role" then
+                    current_role = action.value
+                    role_selected = 1
+                    state = "role"
+                elseif action.type == "cmd" then
+                    term.clear()
+                    term.setCursorPos(1,1)
+                    print("Executing...")
+                    action.action()
+                end
+                
+            elseif state == "role" then
+                role_selected = selected_ptr
+                if action.type == "back" then
+                    state = "main"
+                elseif action.type == "strat" then
+                    term.clear()
+                    term.setCursorPos(1, 1)
+                    print("Running strategy: " .. action.value)
+                    
+                    local script_path = fs.combine(strategies_dir, current_role, action.value .. ".lua")
+                    -- Execute
+                    -- We can shell.run, but we need to consider arguments if ever needed.
+                    -- Ideally, strategies should be self-contained or use a runner.
+                    -- Looking at farmer.lua role, it requires and runs. 
+                    -- But standalone execution via menu implies shell.run.
+                    shell.run(script_path)
+                    
+                    print("\nProcess ended. Press any key to return.")
+                    os.pullEvent("key")
+                end
+            end
         end
+        
+        -- Update the persisted selection pointers
+        if state == "main" then main_selected = selected_ptr
+        elseif state == "role" then role_selected = selected_ptr end
     end
 end
 
