@@ -1,3 +1,8 @@
+-- Ensure package path includes root for sub-processes
+if not package.path:find("/?.lua") then
+    package.path = "/?.lua;/?/init.lua;" .. package.path
+end
+
 local strategies_dir = "turtleos/strategies"
 
 -- Helper: Get list of roles (directories)
