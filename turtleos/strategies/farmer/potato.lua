@@ -1,3 +1,8 @@
+-- Ensure package path includes root
+if not package.path:find("/?.lua") then
+    package.path = "/?.lua;/?/init.lua;" .. package.path
+end
+
 local logger = require("turtleos.lib.logger")
 local movement = require("turtleos.apis.movement")
 

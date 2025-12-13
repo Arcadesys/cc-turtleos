@@ -127,15 +127,31 @@ local function run_menu()
                 elseif action.type == "strat" then
                     term.clear()
                     term.setCursorPos(1, 1)
-                    print("Running strategy: " .. action.value)
+                    print("Starting " .. current_role .. " role with strategy: " .. action.value)
                     
-                    local script_path = fs.combine(strategies_dir, current_role, action.value .. ".lua")
-                    -- Execute
-                    -- We can shell.run, but we need to consider arguments if ever needed.
-                    -- Ideally, strategies should be self-contained or use a runner.
-                    -- Looking at farmer.lua role, it requires and runs. 
-                    -- But standalone execution via menu implies shell.run.
-                    shell.run(script_path)
+                    local role_mod_name = "turtleos.roles." .. current_role
+                    package.loaded[role_mod_name] = nil -- Reload role
+                    
+                    local success, role = pcall(require, role_mod_name)
+                    if success and type(role) == "table" and role.run then
+                        -- Construct a minimal schema for the role
+                        local run_schema = {
+                            role = current_role,
+                            strategy = action.value
+                        }
+                        
+                        -- Run the role (this will likely loop forever)
+                        local ok, err = pcall(role.run, run_schema)
+                        if not ok then
+                            print("\nRole Execution Error: " .. tostring(err))
+                        end
+                    else
+                        print("\nError: Failed to load role module '" .. current_role .. "' or missing 'run'.")
+                        if not success then print(tostring(role)) end
+                        
+                        -- Fallback: try running strategy directly if role fails? 
+                        -- No, better to be explicit.
+                    end
                     
                     print("\nProcess ended. Press any key to return.")
                     os.pullEvent("key")
