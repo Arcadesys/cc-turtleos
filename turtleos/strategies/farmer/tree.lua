@@ -7,12 +7,30 @@ local movement = require("turtleos.apis.movement")
 local tree = {}
 
 -- Configuration
-local treeLocations = {
-    {x=2, z=1}, {x=2, z=3}, {x=2, z=5}, {x=2, z=7},
-    {x=4, z=1}, {x=4, z=3}, {x=4, z=5}, {x=4, z=7},
-    {x=6, z=1}, {x=6, z=3}, {x=6, z=5}, {x=6, z=7},
-    {x=8, z=1}, {x=8, z=3}, {x=8, z=5}, {x=8, z=7}
-}
+local FARM_ROWS = 4    -- Number of trees along X axis
+local FARM_COLS = 4    -- Number of trees along Z axis
+local SPACING_X = 2    -- Distance between tree rows
+local SPACING_Z = 2    -- Distance between trees in a row
+local START_X = 2      -- X coordinate of first tree row
+local START_Z = 1      -- Z coordinate of first tree in row
+
+-- Aisle behind the last tree row to safely cross X columns
+local AISLE_Z = START_Z + (FARM_COLS * SPACING_Z)
+
+local function generateTreeLocations()
+    local locs = {}
+    for x = 0, FARM_ROWS - 1 do
+        for z = 0, FARM_COLS - 1 do
+            table.insert(locs, {
+                x = START_X + (x * SPACING_X),
+                z = START_Z + (z * SPACING_Z)
+            })
+        end
+    end
+    return locs
+end
+
+local treeLocations = generateTreeLocations()
 local currentTreeIndex = 1
 
 local function selectItem(pattern)
@@ -120,7 +138,14 @@ local function chopTree()
     end
     
     -- Move back to standing position (back out of the tree)
-    movement.back()
+    -- We assume we approach from West (x-1), so we exit to West (3)
+    movement.face(3)
+    if not movement.forward(true) then
+        logger.error("Failed to exit tree position")
+    end
+    
+    -- Face the tree again (East) for planting or next check
+    movement.face(1)
     
     return logsChopped
 end
@@ -151,14 +176,14 @@ local function safeGoto(targetX, targetZ)
     -- 2. Traverse logic
     -- If changing columns, use the aisle at Z=9
     if math.abs(current.x - targetX) > 0.1 then
-        -- Move to Z = 9 (Back of the farm) at safe height
-        if not movement.gotoPosition(current.x, SAFE_HEIGHT, 9, true) then
+        -- Move to AISLE_Z (Back of the farm) at safe height
+        if not movement.gotoPosition(current.x, SAFE_HEIGHT, AISLE_Z, true) then
             logger.error("Failed to move to safe aisle")
             return false
         end
         
         -- Move along aisle to target X
-        if not movement.gotoPosition(targetX, SAFE_HEIGHT, 9, true) then
+        if not movement.gotoPosition(targetX, SAFE_HEIGHT, AISLE_Z, true) then
             logger.error("Failed to move along safe aisle")
             return false
         end
@@ -223,6 +248,10 @@ function tree.execute()
 
     -- Load progress
     currentTreeIndex = loadProgress()
+    if currentTreeIndex > #treeLocations then
+        logger.warn("Saved index " .. currentTreeIndex .. " exceeds tree count " .. #treeLocations .. ". Resetting to 1.")
+        currentTreeIndex = 1
+    end
     logger.info("Resuming from tree index " .. currentTreeIndex)
 
     -- Get current tree target
