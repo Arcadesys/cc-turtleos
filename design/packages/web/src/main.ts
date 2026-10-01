@@ -60,6 +60,8 @@ const unit = new THREE.BoxGeometry(1, 1, 1);
 
 // One material per block id: flat colour first, swapped for the resource-pack texture if the server has one.
 const loader = new THREE.TextureLoader();
+let available = new Set<string>();
+const textureReady = fetch("/api/textures").then((r) => r.json() as Promise<string[]>).then((ids) => { available = new Set(ids); }).catch(() => {});
 const materialCache = new Map<string, THREE.MeshLambertMaterial>();
 const textureUrl = (id: string) => {
   const [ns, name] = id.split(":");
@@ -71,6 +73,7 @@ function materialFor(id: string): THREE.MeshLambertMaterial {
   mat = new THREE.MeshLambertMaterial({ color: colorOf(id) });
   materialCache.set(id, mat);
   const target = mat;
+  if (!available.has(id)) return mat;
   loader.load(textureUrl(id), (tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.magFilter = THREE.NearestFilter;
@@ -94,12 +97,22 @@ scene.add(group);
 let current: Payload | null = null;
 let framed = "";
 
+// Block height as a fraction of a cube: carpets and slabs are not full cubes.
+const heightOf = (block: string): number => {
+  const id = baseId(block);
+  return id.endsWith("_carpet") ? 1 / 16 : id.endsWith("_slab") ? 0.5 : 1;
+};
+let occupied = new Map<string, number>();
+let groundY = 0;
+
 function render() {
   group.clear();
   if (!current) return;
   const { blueprint: bp, report } = current;
   const maxY = Number($<HTMLInputElement>("slice").value);
   const shown = bp.blocks.filter((b) => b[1] <= maxY);
+  occupied = new Map(shown.map((b) => [`${b[0]},${b[1]},${b[2]}`, heightOf(b[3])]));
+  groundY = bp.blocks.length ? Math.min(...bp.blocks.map((b) => b[1])) : 0;
   const byBlock = new Map<string, Array<[number, number, number]>>();
   for (const [x, y, z, b] of shown) {
     const id = baseId(b);
@@ -108,7 +121,8 @@ function render() {
   const m = new THREE.Matrix4();
   for (const [id, cells] of byBlock) {
     const mesh = new THREE.InstancedMesh(unit, materialFor(id), cells.length);
-    cells.forEach(([x, y, z], i) => mesh.setMatrixAt(i, m.makeTranslation(x, y, z)));
+    const h = heightOf(id);
+    cells.forEach(([x, y, z], i) => mesh.setMatrixAt(i, m.makeTranslation(x, y - 0.5 + h / 2, z).multiply(new THREE.Matrix4().makeScale(1, h, 1))));
     group.add(mesh);
   }
   if (report && $<HTMLInputElement>("ghosts").checked) {
@@ -141,7 +155,7 @@ function sidebar() {
     const sw = document.createElement("span");
     sw.className = "sw";
     sw.style.background = "#" + colorOf(m.block).getHexString();
-    sw.style.backgroundImage = `url(${textureUrl(m.block)})`;
+    if (available.has(m.block)) sw.style.backgroundImage = `url(${textureUrl(m.block)})`;
     sw.style.backgroundSize = "cover";
     sw.style.imageRendering = "pixelated";
     const name = document.createElement("span");
@@ -208,9 +222,127 @@ $("ghosts").addEventListener("change", render);
 // Files on disk are the source of truth; poll for edits from Claude or a test run.
 const poll = () => refreshList().then(async () => { if (pick.value) await load(pick.value); }).catch(() => { /* server restarting: try again next tick */ });
 setInterval(() => { void poll(); }, 1500);
-void poll();
+void textureReady.then(() => { materialCache.clear(); void poll(); });
 
 renderer.setAnimationLoop(() => {
-  controls.update();
+  stepWalk();
+  if (!walking) controls.update();
   renderer.render(scene, camera);
+});
+
+// Walk mode: first-person with voxel collision. Cells span [c-0.5, c+0.5]; below the lowest layer is solid ground.
+const RADIUS = 0.3, HEIGHT = 1.8, EYE = 1.62;
+let walking = false;
+let yaw = 0, pitch = 0;
+let vy = 0, onGround = false;
+const feet = new THREE.Vector3();
+(window as unknown as { tbWalk: unknown }).tbWalk = { feet, get walking() { return walking; } }; // read-only debug hook
+const held = new Set<string>();
+let dragLook = false;
+const look = $<HTMLInputElement>("look");
+try { look.value = localStorage.getItem("tb-look") ?? look.value; } catch { /* storage blocked */ }
+look.addEventListener("input", () => { try { localStorage.setItem("tb-look", look.value); } catch { /* storage blocked */ } });
+// Radians per pixel; the slider runs 1..30 around a default of 10 (0.0011).
+const lookSpeed = () => Number(look.value) * 0.00011;
+const clampMove = (n: number) => Math.max(-60, Math.min(60, n));
+let last = performance.now();
+
+// Top of the solid part of a cell, or null if empty. Everything at or below the lowest layer is ground.
+const topOf = (cx: number, cy: number, cz: number): number | null => {
+  if (cy <= groundY) return cy + 0.5;
+  const h = occupied.get(`${cx},${cy},${cz}`);
+  return h === undefined ? null : cy - 0.5 + h;
+};
+
+function hits(x: number, y: number, z: number): boolean {
+  for (let cx = Math.round(x - RADIUS); cx <= Math.round(x + RADIUS); cx++)
+    for (let cy = Math.round(y - 0.5); cy <= Math.round(y + HEIGHT - 0.01); cy++)
+      for (let cz = Math.round(z - RADIUS); cz <= Math.round(z + RADIUS); cz++) {
+        const overlapX = x + RADIUS > cx - 0.5 && x - RADIUS < cx + 0.5;
+        const overlapZ = z + RADIUS > cz - 0.5 && z - RADIUS < cz + 0.5;
+        const top = overlapX && overlapZ ? topOf(cx, cy, cz) : null;
+        if (top !== null && y + HEIGHT > cy - 0.5 && y < top - 1e-6) return true;
+      }
+  return false;
+}
+
+function setWalking(on: boolean) {
+  if (!current || !current.blueprint.blocks.length) return;
+  walking = on;
+  document.body.classList.toggle("walking", on);
+  controls.enabled = !on;
+  $("walk").textContent = on ? "Stop walking (Esc)" : "Walk around (F)";
+  if (on) {
+    const xs = current.blueprint.blocks.map((b) => b[0]), zs = current.blueprint.blocks.map((b) => b[2]);
+    // Start outside the +z (front) side, facing the building.
+    feet.set((Math.min(...xs) + Math.max(...xs)) / 2, groundY + 0.5, Math.max(...zs) + 4);
+    yaw = 0; pitch = 0; vy = 0; onGround = true;
+    void Promise.resolve(renderer.domElement.requestPointerLock?.()).catch(() => { dragLook = false; });
+  } else {
+    held.clear();
+    if (document.pointerLockElement) document.exitPointerLock();
+    controls.target.set(feet.x, feet.y + EYE, feet.z - 6);
+  }
+}
+
+function stepWalk() {
+  const now = performance.now();
+  let left = Math.min((now - last) / 1000, 0.5);
+  last = now;
+  if (!walking) return;
+  // Sub-step so a slow frame moves the right distance without tunnelling through walls.
+  while (left > 1e-4) {
+    const dt = Math.min(left, 0.025);
+    physics(dt);
+    left -= dt;
+  }
+  camera.position.set(feet.x, feet.y + EYE, feet.z);
+  camera.rotation.set(pitch, yaw, 0, "YXZ");
+}
+
+function physics(dt: number) {
+  const speed = (held.has("ShiftLeft") || held.has("ShiftRight") ? 7 : 4.3) * dt;
+  const f = (held.has("KeyW") ? 1 : 0) - (held.has("KeyS") ? 1 : 0);
+  const r = (held.has("KeyD") ? 1 : 0) - (held.has("KeyA") ? 1 : 0);
+  const len = Math.hypot(f, r) || 1;
+  const dx = ((-Math.sin(yaw) * f + Math.cos(yaw) * r) / len) * speed;
+  const dz = ((-Math.cos(yaw) * f - Math.sin(yaw) * r) / len) * speed;
+  // Walk into a carpet, slab or other low edge: step up onto it (up to 0.6) like the game does.
+  const slide = (mx: number, mz: number) => {
+    if (!hits(feet.x + mx, feet.y, feet.z + mz)) { feet.x += mx; feet.z += mz; }
+    else if (onGround && !hits(feet.x + mx, feet.y + 0.6, feet.z + mz)) { feet.x += mx; feet.z += mz; feet.y += 0.6; onGround = false; }
+  };
+  slide(dx, 0);
+  slide(0, dz);
+  if (onGround && held.has("Space")) { vy = 8; onGround = false; }
+  vy -= 25 * dt;
+  const ny = feet.y + vy * dt;
+  if (!hits(feet.x, ny, feet.z)) {
+    feet.y = ny;
+    onGround = false;
+  } else {
+    if (vy < 0) onGround = true;
+    vy = 0;
+  }
+}
+
+addEventListener("keydown", (e) => {
+  if (e.code === "KeyF" && !(e.target instanceof HTMLSelectElement)) { setWalking(!walking); return; }
+  if (walking) { held.add(e.code); if (e.code === "Space") e.preventDefault(); if (e.code === "Escape") setWalking(false); }
+});
+addEventListener("keyup", (e) => held.delete(e.code));
+addEventListener("blur", () => held.clear());
+$("walk").addEventListener("click", () => setWalking(!walking));
+document.addEventListener("pointerlockchange", () => {
+  if (walking && !document.pointerLockElement) dragLook = false; // fall back to drag-to-look until the next click
+});
+renderer.domElement.addEventListener("mousedown", () => {
+  if (!walking) return;
+  if (!document.pointerLockElement) { void Promise.resolve(renderer.domElement.requestPointerLock?.()).catch(() => {}); dragLook = true; }
+});
+addEventListener("mouseup", () => { dragLook = false; });
+addEventListener("mousemove", (e) => {
+  if (!walking || !(document.pointerLockElement || dragLook)) return;
+  yaw -= clampMove(e.movementX) * lookSpeed();
+  pitch = Math.max(-1.55, Math.min(1.55, pitch - clampMove(e.movementY) * lookSpeed()));
 });

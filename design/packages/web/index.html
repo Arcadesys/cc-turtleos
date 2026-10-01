@@ -24,10 +24,19 @@
   label.chk { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
   .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
   .name { overflow-wrap: anywhere; }
+  button { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  #hud { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); padding: 6px 12px; border-radius: 8px; background: var(--panel);
+         border: 1px solid var(--line); font-size: 13px; display: none; pointer-events: none; }
+  body.walking aside { opacity: .35; } body.walking #hud { display: block; }
+  #cross { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #fff; mix-blend-mode: difference; display: none; pointer-events: none; }
+  body.walking #cross { display: block; }
 </style>
 </head>
 <body>
 <div id="view"></div>
+<div id="cross"></div>
+<div id="hud">WASD move · mouse look · Space jump · Shift sprint · Esc leave</div>
 <aside>
   <h1>Turtle Blueprints</h1>
   <select id="pick" aria-label="Blueprint"></select>
@@ -38,6 +47,10 @@
   <ul id="mats"></ul>
   <h2>Turtle test</h2>
   <div id="report" class="note">No test run yet. Ask Claude to run test_run_build.</div>
+  <h2>Walk</h2>
+  <button id="walk" type="button">Walk around (F)</button>
+  <label class="chk">Look speed <input id="look" type="range" min="1" max="30" step="1" value="10" aria-label="Look speed"></label>
+  <div class="note">WASD move, mouse look (click the view first), Space jump, Shift sprint, Esc to leave. Lower the layer slider to remove the roof.</div>
   <label class="chk"><input id="ghosts" type="checkbox" checked> Show missing / wrong blocks</label>
   <div class="note">A turtle built by cc-factory is mirrored left to right and sits behind-left of its start (turtlesim/README.md). Blueprint coordinates are shown as designed.</div>
 </aside>

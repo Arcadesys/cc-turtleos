@@ -27,6 +27,44 @@ function loadTextures(): Map<string, Uint8Array> {
 // Faces tried in order when a block has no single-image texture (logs, grass, furnaces...).
 const FACES = ["", "_side", "_top", "_front", "_end"];
 
+// Shaped variants reuse another block's image: oak_slab -> oak_planks, red_carpet -> red_wool, stone_brick_stairs -> stone_bricks.
+const SHAPES = ["_slab", "_stairs", "_wall", "_fence_gate", "_fence", "_button", "_pressure_plate", "_carpet"];
+const BASES = ["", "_planks", "_block", "_wool", "_bricks", "s"];
+
+function lookup(textures: Map<string, Uint8Array>, id: string): Uint8Array | undefined {
+  const colon = id.indexOf(":");
+  const ns = id.slice(0, colon);
+  const name = id.slice(colon + 1);
+  const tries = [name];
+  for (const shape of SHAPES) if (name.endsWith(shape)) tries.push(...BASES.map((b) => name.slice(0, -shape.length) + b));
+  for (const t of tries) for (const face of FACES) {
+    const data = textures.get(`${ns}:${t}${face}`);
+    if (data) return data;
+  }
+  return undefined;
+}
+
+/** Every id lookup() can answer, so the page never asks for a missing texture. */
+function availableIds(textures: Map<string, Uint8Array>): string[] {
+  const ids = new Set<string>();
+  for (const key of textures.keys()) {
+    const colon = key.indexOf(":");
+    const ns = key.slice(0, colon);
+    const name = key.slice(colon + 1);
+    const names = new Set([name]);
+    for (const face of FACES) if (face && name.endsWith(face)) names.add(name.slice(0, -face.length));
+    for (const n of [...names]) {
+      for (const suffix of ["_planks", "_wool", "_block", "_bricks"]) {
+        if (n.endsWith(suffix)) for (const shape of SHAPES) names.add(n.slice(0, -suffix.length) + shape);
+      }
+      for (const shape of SHAPES) names.add(n + shape);
+      if (n.endsWith("_bricks")) for (const shape of SHAPES) names.add(n.slice(0, -1) + shape);
+    }
+    for (const n of names) if (lookup(textures, `${ns}:${n}`)) ids.add(`${ns}:${n}`);
+  }
+  return [...ids];
+}
+
 /** Serves blueprint files (the source of truth) and the latest test diff; the page polls `version`. */
 function blueprintApi(): Plugin {
   return {
@@ -47,15 +85,14 @@ function blueprintApi(): Plugin {
             : [];
           return json(names);
         }
+        if (url.pathname === "/textures") return json(availableIds(textures));
         const t = /^\/texture\/([a-z0-9_.-]+)\/([a-z0-9_./-]+)$/.exec(url.pathname);
         if (t) {
-          for (const face of FACES) {
-            const data = textures.get(`${t[1]}:${t[2]}${face}`);
-            if (data) {
-              res.setHeader("content-type", "image/png");
-              res.setHeader("cache-control", "max-age=3600");
-              return void res.end(Buffer.from(data));
-            }
+          const data = lookup(textures, `${t[1]}:${t[2]}`);
+          if (data) {
+            res.setHeader("content-type", "image/png");
+            res.setHeader("cache-control", "max-age=3600");
+            return void res.end(Buffer.from(data));
           }
           res.statusCode = 404;
           return void res.end();
