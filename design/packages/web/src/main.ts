@@ -45,6 +45,38 @@ const colorOf = (block: string): THREE.Color => {
 };
 
 const unit = new THREE.BoxGeometry(1, 1, 1);
+
+// One material per block id: flat colour first, swapped for the resource-pack texture if the server has one.
+const loader = new THREE.TextureLoader();
+const materialCache = new Map<string, THREE.MeshLambertMaterial>();
+const textureUrl = (id: string) => {
+  const [ns, name] = id.split(":");
+  return `/api/texture/${ns}/${name}`;
+};
+function materialFor(id: string): THREE.MeshLambertMaterial {
+  let mat = materialCache.get(id);
+  if (mat) return mat;
+  mat = new THREE.MeshLambertMaterial({ color: colorOf(id) });
+  materialCache.set(id, mat);
+  const target = mat;
+  loader.load(textureUrl(id), (tex) => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestMipmapLinearFilter;
+    const img = tex.image as { width: number; height: number };
+    if (img.height > img.width) {
+      // Animated texture strip: show the first frame.
+      tex.repeat.set(1, img.width / img.height);
+      tex.offset.set(0, 1 - img.width / img.height);
+    }
+    target.map = tex;
+    target.color.set(0xffffff);
+    target.alphaTest = 0.1;
+    target.transparent = true;
+    target.needsUpdate = true;
+  }, undefined, () => { /* no texture for this block: keep the colour */ });
+  return mat;
+}
 const group = new THREE.Group();
 scene.add(group);
 let current: Payload | null = null;
@@ -63,7 +95,7 @@ function render() {
   }
   const m = new THREE.Matrix4();
   for (const [id, cells] of byBlock) {
-    const mesh = new THREE.InstancedMesh(unit, new THREE.MeshLambertMaterial({ color: colorOf(id) }), cells.length);
+    const mesh = new THREE.InstancedMesh(unit, materialFor(id), cells.length);
     cells.forEach(([x, y, z], i) => mesh.setMatrixAt(i, m.makeTranslation(x, y, z)));
     group.add(mesh);
   }
@@ -97,6 +129,9 @@ function sidebar() {
     const sw = document.createElement("span");
     sw.className = "sw";
     sw.style.background = "#" + colorOf(m.block).getHexString();
+    sw.style.backgroundImage = `url(${textureUrl(m.block)})`;
+    sw.style.backgroundSize = "cover";
+    sw.style.imageRendering = "pixelated";
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = m.block;
@@ -159,8 +194,9 @@ $("slice").addEventListener("input", () => { sidebar(); render(); });
 $("ghosts").addEventListener("change", render);
 
 // Files on disk are the source of truth; poll for edits from Claude or a test run.
-setInterval(() => { void refreshList().then(async () => { if (pick.value) await load(pick.value); }); }, 1500);
-void refreshList();
+const poll = () => refreshList().then(async () => { if (pick.value) await load(pick.value); }).catch(() => { /* server restarting: try again next tick */ });
+setInterval(() => { void poll(); }, 1500);
+void poll();
 
 renderer.setAnimationLoop(() => {
   controls.update();

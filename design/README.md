@@ -50,6 +50,10 @@ View the blueprints (reloads as files change):
 TB_BLUEPRINTS=blueprints npm run dev -w @tb/web
 ```
 
+## Textures (optional)
+
+Drop any Minecraft resource pack `.zip` into `design/textures/` (gitignored, never committed) and the viewer skins blocks with `assets/<namespace>/textures/block/<name>.png`. Mod packs work the same way, so ATM10 blocks can be skinned by adding the mods' pack zips. Blocks without a texture keep a flat colour. Logs, grass and furnaces use a single face for now. Packs carry their own licences (Faithful's is not open), so keep them out of the repo.
+
 ## Limits to know about
 
 - A turtle test must fit in the turtle's 16 inventory slots (about 1000 blocks); cc-factory does not pull from chests when checking requirements.
