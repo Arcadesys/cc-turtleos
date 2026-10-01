@@ -38,7 +38,19 @@ function resize() {
 addEventListener("resize", resize);
 resize();
 
+// Blocks with no texture in the loaded packs that should not get a random hash colour.
+const COLOR_OVERRIDES: Record<string, number> = {
+  "computercraft:monitor_normal": 0x2b2f36,
+  "computercraft:monitor_advanced": 0x1b2a3d,
+  "computercraft:computer_normal": 0x8a8a86,
+  "computercraft:computer_advanced": 0xc9a227,
+  "computercraft:turtle_normal": 0x8a8a86,
+  "computercraft:turtle_advanced": 0xc9a227,
+};
+
 const colorOf = (block: string): THREE.Color => {
+  const fixed = COLOR_OVERRIDES[baseId(block)];
+  if (fixed !== undefined) return new THREE.Color(fixed);
   let h = 0;
   for (const c of baseId(block)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return new THREE.Color().setHSL((h % 360) / 360, 0.45, 0.55);

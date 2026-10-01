@@ -4,3 +4,4 @@ dist
 *.log
 .turtle-test/
 textures/
+blueprints/.test/
