@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turtle Blueprints</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f4f4f2; --panel: #ffffffdd; --fg: #1d1d1b; --muted: #6b6b66; --line: #d8d8d2; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161715; --panel: #20211fdd; --fg: #ecece8; --muted: #9a9a93; --line: #34352f; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #view { position: fixed; inset: 0; }
+  aside { position: fixed; top: 12px; left: 12px; bottom: 12px; width: 280px; max-width: calc(100vw - 24px); overflow: auto;
+          background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; backdrop-filter: blur(6px); }
+  h1 { font-size: 15px; margin: 0 0 10px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 16px 0 6px; }
+  select, input[type=range] { width: 100%; }
+  select { padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 1px solid #0003; }
+  .n { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pass { color: #2f8f4e; font-weight: 600; } .fail { color: #c8402c; font-weight: 600; }
+  label.chk { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .name { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<aside>
+  <h1>Turtle Blueprints</h1>
+  <select id="pick" aria-label="Blueprint"></select>
+  <h2>Layers</h2>
+  <input id="slice" type="range" min="0" max="0" value="0" aria-label="Show layers up to">
+  <div id="sliceLabel" class="note"></div>
+  <h2>Materials</h2>
+  <ul id="mats"></ul>
+  <h2>Turtle test</h2>
+  <div id="report" class="note">No test run yet. Ask Claude to run test_run_build.</div>
+  <label class="chk"><input id="ghosts" type="checkbox" checked> Show missing / wrong blocks</label>
+  <div class="note">A turtle built by cc-factory is mirrored left to right and sits behind-left of its start (turtlesim/README.md). Blueprint coordinates are shown as designed.</div>
+</aside>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
