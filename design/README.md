@@ -1,6 +1,6 @@
-# turtle-blueprints
+# TurtleOS design tools
 
-Design a build with Claude, see it in 3D, then test it on a simulated ComputerCraft turtle.
+Part of [TurtleOS](../agents.md). Design a build with Claude, see it in 3D, then test it on a simulated ComputerCraft turtle. The on-turtle roles and strategies live in `../turtleos/`; the simulator and the schema builder (`turtlesim`, `cc-factory`) live in [cc-binaries](https://github.com/Arcadesys/cc-binaries).
 
 ```
 Claude ──MCP──► blueprint files (.blueprint.json) ──► viewer (three.js, live reload)
@@ -23,11 +23,12 @@ Blueprint files on disk are the source of truth. The MCP server holds no state, 
 ## Setup
 
 ```bash
+cd design
 npm install
 npm test
 ```
 
-Tests that run the real simulator need CraftOS-PC and a [cc-binaries](https://github.com/Arcadesys/cc-binaries) checkout that has `turtlesim/` with `--file`, `--results` and `--dump-blocks`, plus the `factory.lua` schema-path fix. Point `CC_BINARIES` at it (default `../cc-binaries`). They skip when it is missing.
+Tests that run the real simulator need CraftOS-PC and a [cc-binaries](https://github.com/Arcadesys/cc-binaries) checkout that has `turtlesim/` with `--file`, `--results` and `--dump-blocks`, plus the `factory.lua` schema-path fix. Point `CC_BINARIES` at it (default: `cc-binaries` next to this repo). They skip when it is missing.
 
 ## Use with Claude Code
 
@@ -36,8 +37,8 @@ Tests that run the real simulator need CraftOS-PC and a [cc-binaries](https://gi
   "mcpServers": {
     "turtle-blueprints": {
       "command": "npx",
-      "args": ["tsx", "packages/mcp/src/server.ts"],
-      "env": { "TB_BLUEPRINTS": "blueprints", "CC_BINARIES": "../cc-binaries" }
+      "args": ["tsx", "design/packages/mcp/src/server.ts"],
+      "env": { "TB_BLUEPRINTS": "blueprints", "CC_BINARIES": "../../cc-binaries" }
     }
   }
 }

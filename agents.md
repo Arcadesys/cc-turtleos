@@ -86,3 +86,8 @@ When asked to add new functionality, determine if it fits an existing **Role** o
 
 *   **Installer Updates**: The `install.lua` file contains a hardcoded archive of the project files. **Whenever you modify any file in the `turtleos/` directory or `boot.lua`, you MUST update the corresponding entry in `install.lua`.** This ensures that users running the installer get the latest version of the code.
 
+
+
+## 5. Design and testing tools
+
+[`design/`](./design) holds the design side of TurtleOS: a blueprint model, an MCP server so Claude can author builds, a 3D viewer, and a tester that runs a blueprint through `turtlesim` and `cc-factory` (in the cc-binaries repo) and reports built vs planned blocks. See [`design/README.md`](./design/README.md).

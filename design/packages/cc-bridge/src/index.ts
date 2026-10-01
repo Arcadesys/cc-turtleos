@@ -103,7 +103,7 @@ export interface CcBinaries {
 }
 
 /** Locate a cc-binaries checkout (with turtlesim and cc-factory) or throw. */
-export function findCcBinaries(root = process.env.CC_BINARIES ?? resolve(process.cwd(), "../cc-binaries")): CcBinaries {
+export function findCcBinaries(root = process.env.CC_BINARIES ?? resolve(process.cwd(), "../../cc-binaries")): CcBinaries {
   const turtle = join(root, "turtlesim", "turtle");
   const factory = join(root, "cc-factory", "factory.lua");
   if (!existsSync(turtle) || !existsSync(factory)) {
